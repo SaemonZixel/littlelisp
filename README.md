@@ -2,19 +2,10 @@
 
 A mini Lisp interpreter in JavaScript.  Supports lists (obvs), function invocation, lambdas, lets, if statements, numbers, strings and the library functions `first`, `rest` and `print`.
 
-* By Mary Rose Cook
-* https://maryrosecook.com
-* mary@maryrosecook.com
+* Original author: Mary Rose Cook <mary@maryrosecook.com>
+* Thanks to Martin Tornwall for the implementations of let and if.
 
-Thank you to Martin Tornwall for the implementations of let and if.
-
-## Repl
-
-```
-$ node repl.js
-```
-
-## Some runnable programs
+## Examples
 
 ```lisp
 1
@@ -26,4 +17,12 @@ $ node repl.js
 
 ```lisp
 ((lambda (x) (rest x)) ("a" "b" "c"))
+```
+
+```lisp
+((let x "ok!") (print x))
+```
+
+```lisp
+((let x 1) (if (x) (print "x == 1") (print "x != 1")))
 ```

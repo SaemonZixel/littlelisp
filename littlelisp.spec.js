@@ -144,17 +144,13 @@ describe('littleLisp', function() {
 
     describe('let', function() {
       it('should eval inner expression w names bound', function() {
-        expect(t.interpret(t.parse("(let ((x 1) (y 2)) (x y))"))).toEqual([1, 2]);
+        expect(t.interpret(t.parse("(let x 1)"))).toEqual(1);
       });
 
-      it('should not expose parallel bindings to each other', function() {
+      it('should eval chain of assigning', function() {
         // Expecting undefined for y to be consistent with normal
         // identifier resolution in littleLisp.
-        expect(t.interpret(t.parse("(let ((x 1) (y x)) (x y))"))).toEqual([1, undefined]);
-      });
-
-      it('should accept empty binding list', function() {
-        expect(t.interpret(t.parse("(let () 42)"))).toEqual(42);
+        expect(t.interpret(t.parse("((let x 1) (let y x))"))).toEqual([1, 1]);
       });
     });
 

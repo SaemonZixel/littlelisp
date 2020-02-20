@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>LittleLisp.js</title>
+	<script type="text/javascript" src="/littlelisp.js"></script>
+	<script type="text/javascript">
+	function repl(event) {
+		var result = littleLisp.interpret(littleLisp.parse(document.getElementById("code").value));
+		console.log(result);
+		alert(result);
+	}
+	</script>
+</head>
+<body>
+<textarea id="code" style="width:50%;height:200px">(123 "ok!" (1 2 3))
+</textarea><br>
+<button onclick="repl(event)">doit</button>
+</body>
+</html>
