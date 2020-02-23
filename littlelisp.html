@@ -6,14 +6,16 @@
 	<script type="text/javascript" src="/littlelisp.js"></script>
 	<script type="text/javascript">
 	function repl(event) {
-		var result = littleLisp.interpret(littleLisp.parse(document.getElementById("code").value));
-		console.log(result);
-		alert(result);
+		var result = littleLisp.interpret(
+			littleLisp.parse(document.getElementById("code").value), 
+			window);
+		console.info(result);
+		alert("RESULT: "+JSON.stringify(result));
 	}
 	</script>
 </head>
 <body>
-<textarea id="code" style="width:50%;height:200px">(123 "ok!" (1 2 3))
+<textarea id="code" style="width:50%;height:200px">(let test1 (lambda (x y) (alert x)))
 </textarea><br>
 <button onclick="repl(event)">doit</button>
 </body>
