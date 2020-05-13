@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+	<title>LittleLisp.js Tests</title>
+	<script src="/littlelisp.js" type="text/javascript"></script>
+</head>
+<body>
+<pre>
+(defun String.prototype.test1 (a1) (alert (this + a1)))
+(document.title.test1 "123")
+
+=================== Parse
+(abc 
+	(qwf
+
+==================== Parse
+'(Шаблон_буквы_А 
+	(состоит_из "20 точек")
+)
+
+'(Точка_1
+	(abc)
+)
+
+=================== Parse
+(
+		0 255 255 0
+		255 0 0 255
+		255 255 255 255
+		255 0 0 255)
+
+=================== Parse "ambda"
+(setq test1 (lambda (x y) (alert x)))
+
+
+=================== 
+(typeof true)
+(typeof false)
+(typeof null)
+(typeof :abc)
+
+=================== return undefined?
+("word" + (Brain.new_id))
+
+=================== inc only first
+(++ arg1 arg2)
+	<script type="text/javascript">
+		function out(str){ document.writeln(str.toString()); };
+	
+		document.write("<h3>" + (test = "(typeof false)") + "</h3>");
+		result = littleLisp.eval(test);
+		console.assert(result == "boolean", out);
+	</script>
+</body>
+</html>

@@ -6,17 +6,39 @@
 	<script type="text/javascript" src="/littlelisp.js"></script>
 	<script type="text/javascript">
 	function repl(event) {
-		var result = littleLisp.interpret(
-			littleLisp.parse(document.getElementById("code").value), 
-			window);
-		console.info(result);
-		alert("RESULT: "+JSON.stringify(result));
+		var result = littleLisp.eval(document.getElementById("code").value);
+// 		console.info(result);
+		try {
+			alert("RESULT: " + (result instanceof Function 
+				? result : JSON.stringify(result)))
+		} catch(ex) {
+			alert("RESULT: " + result);
+		}
+	}
+	
+	function open_IDE(event) {
+		window['default_lisp_code'] = document.getElementById("code").value;
+	
+		if( ! window["littlelisp_ide_onclick"]) {
+			var script_tag = document.createElement("SCRIPT");
+			script_tag.type = "text/javascript";
+			script_tag.src = "littlelisp.ide.js";
+			script_tag.onload = function(){ html_onclick({type: "show_hide_littlelisp_js_ide"}); };
+			document.querySelector("head").appendChild(script_tag);
+		}
+		else 
+			html_onclick({type: "show_hide_littlelisp_js_ide"});
 	}
 	</script>
 </head>
 <body>
-<textarea id="code" style="width:50%;height:200px">(let test1 (lambda (x y) (alert x)))
+<textarea id="code" style="width:50%;height:200px">(
+  ;; simple lambda example
+  (setq test1 (lambda (x y) (alert (x + y))))
+  (test1 1 2)
+)
 </textarea><br>
 <button onclick="repl(event)">doit</button>
+<button onclick="open_IDE(event)">open IDE</button>
 </body>
 </html>
