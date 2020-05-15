@@ -359,10 +359,10 @@ Context.prototype.interpret_elem = function() {
 				
 	// ???
 	else
-		throw "Unrecognized: " + 
+		throw new Error("Unrecognized: " + 
 			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + (this.input[this.indx] & 65535)) + 
 			"\nSource fragment: " + 
-			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + 30)+"...";
+			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + 30)+"...");
 }
 
 Context.prototype.interpret_list = function(debugging, step_over_ctx) {
@@ -372,117 +372,216 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 	/* решим кто следующий */
 	for(var prt_cnt = 0; prt_cnt < 1000; prt_cnt++) try {
 	
-	if (step_over_ctx && prt_cnt > 0) {
-		if (ctx == step_over_ctx) return ctx;
-	}
+	if (step_over_ctx && prt_cnt > 0 && ctx == step_over_ctx && ctx.indx in ctx.result == false) 
+		return ctx;
 		
 	var off = ctx.input[0] instanceof Array == false ? ctx.input[0] >> 16 : 0;
 	var len = ctx.input[0] instanceof Array == false ? (ctx.input[0] & 65535) : 0;
-	var end_indx = ctx.input.length-1;
-		
-	// (+- ...)
-	if (len > 0 && "+-*/%<>!=|&".indexOf(ctx.source[off]) > -1) {
+	
+	// (&&,|| ...)
+	if (len == 2 && "|&".indexOf(ctx.source[off]) > -1) {
 		
 		// operator (skip)
 		if (ctx.indx == 0) {
-			ctx.indx++;
+			ctx.indx = 1;
 			return ctx;
 		}
 		
-		// args...
-		if (ctx.indx < ctx.input.length-1) {
+		if (ctx.input.length < 4)
+			throw "Need minimum 2 arguments!";
+		
+		// вычеслим первый аргумент
+		if (ctx.indx == 1) {
 			
 			// вычесляем элемент (если список, то переключаемся на него)
 			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
 				return ctx.result[ctx.indx]; /* return Context */
   
+			// преобразуем в boolean принудительно
+			ctx.result[ctx.indx] = !!ctx.result[ctx.indx];
+			
 			ctx.indx++;
+			return ctx;
+		}
+		
+		// пока есть аргументы и предыдущий результат True(&&) или False(||)
+		while (ctx.indx < ctx.input.length-1 && ctx.result[ctx.indx-1] == (ctx.source[off] == '&')) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+				return ctx.result[ctx.indx]; /* return Context */
+
+			// преобразуем в boolean принудительно
+			ctx.result[ctx.indx] = !!ctx.result[ctx.indx];
+			
+			ctx.indx++;
+			return ctx;
+		}
+		
+		// return to parent or no-parent (or debugging ctx)
+		if (ctx.parent && !(ctx.type & 32)) {
+			ctx.parent.result[ctx.parent.indx] = ctx.result[ctx.indx-1];
+			ctx = ctx.parent;
+			continue;
+		}
+		else {
+			ctx.indx = ctx.input.length;
+			return ctx;
+		}
+		
+	}
+	
+	// (+- ...)
+	if (len > 0 && "+-*/%<>!=".indexOf(ctx.source[off]) > -1) {
+		
+		// operator (skip)
+		if (ctx.indx == 0) {
+			ctx.indx = 1;
 			return ctx;
 		}
 		
 		if (ctx.input.length < 3)
 			throw "Need minimum 1 argument!";
 		
-		// вычесляем последний аргумент и производим действие
-		if (ctx.indx == ctx.input.length-1) {
+		// вычисляем аргумент и производим действие
+		if (ctx.indx < ctx.input.length-1) {
 			
-			if (len == 1 && ctx.source[off] == "<")
-				ctx.result = ctx.result[1] < ctx.result[2];
-			else if (len == 2 && ctx.source[off] == "<" && ctx.source[off+1] == "=")
-				ctx.result = ctx.result[1] <= ctx.result[2];
-			else if (len == 1 && ctx.source[off] == ">")
-				ctx.result = ctx.result[1] > ctx.result[2];
-			else if (len == 2 && ctx.source[off] == ">" && ctx.source[off+1] == "=")
-				ctx.result = ctx.result[1] >= ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "=")
-				ctx.result = ctx.result[1] == ctx.result[2];
-			else if (len == 2 && ctx.source[off] == "=" && ctx.source[off+1] == "=")
-				ctx.result = ctx.result[1] == ctx.result[2];
-			else if (len == 3 && ctx.source[off] == "=" && ctx.source[off+1] == "=" && ctx.source[off+2] == "=")
-				ctx.result = ctx.result[1] === ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "!")
-				ctx.result = ! ctx.result[1];
-			else if (len == 2 && ctx.source[off] == "!" && ctx.source[off+1] == "!")
-				ctx.result = !! ctx.result[1];
-			else if (len == 2 && ctx.source[off] == "!" && ctx.source[off+1] == "=")
-				ctx.result = ctx.result[1] != ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "+") {
-				if (ctx.input.length < 3)
-					throw new Error("Need minimum 2 arguments!");
-				if (ctx.input.length == 4)
-					sum = ctx.result[1] + ctx.result[2];
-				else
-				for (var i = 2, sum = ctx.result[1]; i < ctx.input.length-1; i++)
-					sum += ctx.result[i];
-				ctx.result = sum;
-			}
-			else if (len == 1 && ctx.source[off] == "-")
-				ctx.result = ctx.result[1] - ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "*")
-				ctx.result = ctx.result[1] * ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "/")
-				ctx.result = ctx.result[1] / ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "%")
-				ctx.result = ctx.result[1] % ctx.result[2];
-			else if (len == 2 && ctx.source[off] == "^")
-				ctx.result = ctx.result[1] ^ ctx.result[2];
+			// вычесляем аргумент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+				return ctx.result[ctx.indx]; /* return Context */
+
 			// ++, --
-			else if ((len == 2 && ctx.source[off] == "+" && ctx.source[off+1] == "+" || (len == 2 && ctx.source[off] == "-" && ctx.source[off+1] == "-"))) {
-				for (var i = 1; i < ctx.input.length-1; i++) {
-					ctx.result[i] = ctx.result[i] + (ctx.source[off] == '+' ? 1 : -1);
-					ctx.set(
-						ctx.source.substring(ctx.input[i] >> 16,
-							(ctx.input[i] >> 16) + (ctx.input[i] & 65535)),
-						ctx.result[i]
-					);
-				}
-				ctx.result = ctx.result[ctx.input.length-2];
-			}
-			// TODO many arguments
-			else if (len == 1 && ctx.source[off] == "&")
-				ctx.result = ctx.result[1] & ctx.result[2];
-			else if (len == 2 && ctx.source[off] == "&" && ctx.source[off+1] == "&")
-				ctx.result = ctx.result[1] && ctx.result[2];
-			else if (len == 1 && ctx.source[off] == "|")
-				ctx.result = ctx.result[1] | ctx.result[2];
-			else if (len == 2 && ctx.source[off] == "|" && ctx.source[off+1] == "|")
-				ctx.result = ctx.result[1] || ctx.result[2];
-			else
-				throw "Unknown operator: "+ctx.source.substring(off, off+len);
-			
-			// return to parent or no-parent (or debugging ctx)
-			if (ctx.parent && !(ctx.type & 32)) {
-				ctx.parent.result[ctx.parent.indx] = ctx.result;
-				ctx = ctx.parent;
-				continue;
-			}
-			else {
-				ctx.indx = ctx.input.length;
+			if ((len == 2 && ctx.source[off] == '+' && ctx.source[off+1] == '+' || (len == 2 && ctx.source[off] == '-' && ctx.source[off+1] == '-'))) {
+				ctx.result[ctx.indx] = ctx.result[ctx.indx] + (ctx.source[off] == '+' ? 1 : -1);
+				ctx.set(
+					ctx.source.substring(ctx.input[ctx.indx] >> 16,
+						(ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535)),
+					ctx.result[ctx.indx]
+				);
+				
+				ctx.indx++;
 				return ctx;
 			}
+			
+			// !, !!
+			else if (len == 1 && ctx.source[off] == "!") {
+				ctx.result[ctx.indx] = ctx.indx == 1 
+					? !ctx.result[ctx.indx] 
+					: (!ctx.result[ctx.indx] && ctx.result[ctx.indx-1]);
+					
+				ctx.indx++;
+				return ctx;
+			}
+			else if (len == 2 && ctx.source[off] == "!" && ctx.source[off+1] == "!") {
+				ctx.result[ctx.indx] = ctx.indx == 1 
+					? !!ctx.result[ctx.indx] 
+					: (!!ctx.result[ctx.indx] && ctx.result[ctx.indx-1]);
+				
+				ctx.indx++;
+				return ctx;
+			}
+			
+			// для последующих операторов нужно более 1ого аргумента
+			else if (ctx.indx == 1) {
+				ctx.indx++;
+				return ctx;
+			}
+			
+			// <
+			else if (len == 1 && ctx.source[off] == "<")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] < ctx.result[ctx.indx];
+			
+			// <=
+			else if (len == 2 && ctx.source[off] == "<" && ctx.source[off+1] == "=")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] <= ctx.result[ctx.indx];
+			
+			// >
+			else if (len == 1 && ctx.source[off] == ">")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] > ctx.result[ctx.indx];
+			
+			// >=
+			else if (len == 2 && ctx.source[off] == ">" && ctx.source[off+1] == "=")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] >= ctx.result[ctx.indx];
+			
+			// =,==
+			else if (ctx.source[off] == "=" && (len == 1 || len == 2 && ctx.source[off+1] == "="))
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] == ctx.result[ctx.indx];
+			
+			// ===
+			else if (len == 3 && ctx.source[off] == "=" && ctx.source[off+1] == "=" && ctx.source[off+2] == "=")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] === ctx.result[ctx.indx];
+			
+			// !=
+			else if (len == 2 && ctx.source[off] == "!" && ctx.source[off+1] == "=")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] != ctx.result[ctx.indx];
+			
+			// !==
+			else if (len == 3 && ctx.source[off] == "!" && ctx.source[off+1] == "=" && ctx.source[off+2] == "=")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] !== ctx.result[ctx.indx];
+			
+			// +
+			else if (len == 1 && ctx.source[off] == "+")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] + ctx.result[ctx.indx];
+				
+			// -
+			else if (len == 1 && ctx.source[off] == "-")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] - ctx.result[ctx.indx];
+			
+			// *
+			else if (len == 1 && ctx.source[off] == "*")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] * ctx.result[ctx.indx];
+			
+			// / (divide)
+			else if (len == 1 && ctx.source[off] == "/")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] / ctx.result[ctx.indx];
+			
+			// %
+			else if (len == 1 && ctx.source[off] == "%")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] % ctx.result[ctx.indx];
+			
+			// ^
+			else if (len == 2 && ctx.source[off] == "^")
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] ^ ctx.result[ctx.indx];
+			
+			// &
+			else if (len == 1 && ctx.source[off] == '&')
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] & ctx.result[ctx.indx];
+			
+			// |
+			else if (len == 1 && ctx.source[off] == '|')
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] | ctx.result[ctx.indx];
+			
+			// >>
+			else if (len == 2 && ctx.source[off] == '>' && ctx.source[off+1] == '>')
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] >> ctx.result[ctx.indx];
+			
+			// >>
+			else if (len == 3 && ctx.source[off] == '>' && ctx.source[off+1] == '>' && ctx.source[off+2] == '>')
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] >>> ctx.result[ctx.indx];
+			
+			// <<
+			else if (len == 2 && ctx.source[off] == '<' && ctx.source[off+1] == '<')
+				ctx.result[ctx.indx] = ctx.result[ctx.indx-1] << ctx.result[ctx.indx];
+
+			else
+				throw new Error("Unknown operator: "+ctx.source.substring(off, off+len));
+			
+			// след.аргумент
+			ctx.indx++;
+			return ctx;
 		}
 		
-		debugger;
+		// return to parent or no-parent (or debugging ctx)
+		if (ctx.parent && !(ctx.type & 32)) {
+			ctx.parent.result[ctx.parent.indx] = ctx.result[ctx.indx-1];
+			ctx = ctx.parent;
+			continue;
+		}
+		else {
+			ctx.result = ctx.result[ctx.indx-1];
+			ctx.indx = ctx.input.length;
+			return ctx;
+		}
 	}
 	
 	// (quote ...) '(....) `(....)
@@ -956,7 +1055,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		
 		// def* <name> (skip)
 		if (ctx.indx == 0 || ctx.indx == 1) {
-			ctx.indx = ctx.indx == end_indx ? 0 : ctx.indx+1;
+			ctx.indx++;
 			return ctx;
 		}
 		
@@ -1030,7 +1129,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		
 		// defclass (skip)
 		if (ctx.indx == 0) {
-			ctx.indx = ctx.indx == end_indx ? 0 : 1;
+			ctx.indx = 1;
 			return ctx;
 		}
 		
@@ -1254,46 +1353,39 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		&& ctx.source[off+2] == "t" && ctx.source[off+3] == "u" 
 		&& ctx.source[off+4] == "r" && ctx.source[off+5] == "n") {
 		
-		// return (skip)
-		if (ctx.indx == end_indx || ctx.indx == 0) {
-			ctx.indx = ctx.indx == end_indx ? 0 : ctx.indx+1;
-			return ctx;
-		}
-		
-		// первым делом вычеслим аргумент если он есть
+		// первым делом вычислим аргумент (если он есть)
 		if (ctx.indx == 0 && ctx.input.length == 3) {
 			ctx.indx = 1;
 			return ctx;
 		}
 		
-		// либо аргумента нет, либо вычислили
-		if (ctx.indx == 1 && ctx.input.length == 3 || ctx.input.length == 2) {
+		// вычислим аргумент (если есть)
+		if (ctx.indx == 1 && ctx.input.length == 3) {
 			
-			// вычесляем элемент (если список, то переключаемся на него)
-			if (ctx.indx == 1 && ctx.indx in ctx.result == false && !ctx.interpret_elem())
+			// вычисляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
 				return ctx.result[ctx.indx]; /* return Context */
-			
-			// найдём стартовый контекст функции
-			for (var func_ctx = ctx.parent; func_ctx.parent; func_ctx = func_ctx.parent) {
-				if (func_ctx && func_ctx.type & 16+32) // type=func+dbg
-					break;
-			}
-			
-			ctx.result = ctx.result[1];
-			
-			// return to parent or no-parent (or debugging ctx)
-			if (ctx.parent && !(ctx.type & 32)) {
-				func_ctx.parent.result[func_ctx.parent.indx] = ctx.result;
-				ctx = func_ctx.parent;
-				continue;
-			}
-			else {
-				ctx.indx = ctx.input.length;
-				return ctx;
-			}
+
 		}
 		
-		debugger;
+		// найдём стартовый контекст функции
+		for (var func_ctx = ctx; func_ctx.parent; func_ctx = func_ctx.parent) {
+			if (func_ctx && func_ctx.type & 16+32) // type=func+dbg
+				break;
+		}
+		
+		ctx.result = ctx.result[ctx.indx];
+			
+		// return to parent or no-parent (or debugging ctx)
+		if (func_ctx.parent && !(ctx.type & 32)) {
+			func_ctx.parent.result[func_ctx.parent.indx] = ctx.result;
+			ctx = func_ctx.parent;
+			continue;
+		}
+		else {
+			ctx.indx = ctx.input.length;
+			return ctx;
+		}
 	}
 	
 	// (break [...])
@@ -1344,8 +1436,8 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		&& ctx.source[off+6] == "u" && ctx.source[off+7] == "e") {
 		
 		// break (skip)
-		if (ctx.indx == end_indx || ctx.indx == 0) {
-			ctx.indx = ctx.indx == end_indx ? 0 : ctx.indx+1;
+		if (ctx.indx == 0) {
+			ctx.indx = 1;
 			return ctx;
 		}
 			
@@ -1530,12 +1622,13 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 
 	} 
 	catch(ex) {
-		if (debugging) console.info(ex.stack);
 		
-		// найдём стартовый контекст catch
+		// найдём ближайший контекст catch
 		var catch_ctx_found = false;
 		for (var catch_ctx = ctx; catch_ctx; catch_ctx = catch_ctx.parent) {
-			if (catch_ctx && catch_ctx.type & 2+32 /* catch+nested_debugging */) {
+			if (catch_ctx.type & 32 /* nested_debugging */) 
+				break;
+			if (catch_ctx && catch_ctx.type & 2 /* catch */) {
 				catch_ctx.result = ex;
 				ctx = catch_ctx;
 				catch_ctx_found = true;
@@ -1544,8 +1637,10 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		// rethrow if not found a catch ctx
-		if (catch_ctx_found == false)
+		if (catch_ctx_found == false) {
+			console.info(ex.stack);
 			throw ex;
+		}
 		
 		// return result to parent/no-parent
 		if (ctx.parent && !(ctx.type & 32)) {

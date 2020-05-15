@@ -128,7 +128,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 (typeof (1 2 3)) ;; "object" - return [1, 2, 3]
 (typeof '(abc cde fgh)) ;; "object" - return ["abc", "cde", "fgh"]
 (typeof (new Object)) ;; "object"
-(typeof null) ;; "object" - it's  historical mistake of JavaScript language
+(typeof null) ;; "object" - it's  historical bug of JavaScript language
 (typeof 123 :eq "number") ;; return true
 ```
 
@@ -141,7 +141,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 ((new Function "" "alert(document.title);")) ;; show title of opened web page
 ```
 
-## Examples OOP
+## OOP Examples
 
 ```lisp
 (defclass Class1
@@ -162,7 +162,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 	(alert (this.inst_var1 + arg1))
 ))
 
-;; will be constructor method
+;; will be constructor
 (defmeth Class1.init (arg1) (
 	(setq this.inst_var1 arg1)
 	
@@ -170,8 +170,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 		(setq arg_key 2)
 		(while (arg_key < arguments.length)
 			(put this arguments.@arg_key (get arguments (arg_key + 1)))
-			(++ arg_key)
-			(++ arg_key)
+			(++ arg_key arg_key)
 		)
 	)
 ))

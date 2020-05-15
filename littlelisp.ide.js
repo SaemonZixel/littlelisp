@@ -902,12 +902,43 @@ function littlelisp_ide_onclick(event) {
 				col2_html.push('<div class="c-object_props-value">'+path.join("")+'</div>');
 			}
 			
+			// пригодится для вывода содежимого объектов
+			function json_enc(obj, max_deep) {
+				switch(typeof obj) {
+					case "object":
+						if(obj == null) return "null";
+						
+						if((max_deep == undefined ? 1 : max_deep) < 1) 
+							return ({}).toString.apply(obj);
+						
+						var json = [];
+						if(obj instanceof Array) {
+							for(var i = 0; i < obj.length; i++)
+								json.push(json_enc(obj[i], max_deep-1));
+							return '['+json.join(',')+']';
+						}
+						for(var fname in obj) {
+							json.push(fname+": "+json_enc(obj[fname], max_deep-1));
+							if (json.length > 15) return JSON.stringify(obj);
+						}
+						return "{"+json.join(', ')+"}";
+					case "number":
+						return obj.toString();
+					case "boolean":
+						return obj ? "true" : "false";
+					case "undefined":
+						return "undefined";
+					default:
+						return '"'+String(obj)+'"';
+				}
+			}
+			
 			// сгенерируем HTML со содержимым объекта
 			var selected_key = ('state_to_load' in ev) ? ev.state_to_load.selected_key : '';
 			for(var f in obj)
-			if(col1_html.length > (root.getAttribute("data-rows-limit")||200)) {
+			if(col1_html.length > (root.getAttribute("data-rows-limit")||100)) {
 				col1_html.push('<div class="c-object_props-key">&nbsp;</div>');
-				col2_html.push('<div class="c-object_props-value">Limit '+(root.getAttribute("data-rows-limit")||200)+' rows excedded!...</div>');
+				col2_html.push('<div class="c-object_props-value">Limit '+(root.getAttribute("data-rows-limit")||100)+' rows excedded!...</div>');
 				break;
 			}
 			else {
@@ -925,40 +956,15 @@ function littlelisp_ide_onclick(event) {
 						break;
 					default:
 						try {
-// 							if(obj[f] instanceof Array) {
-								col2_html.push('<div class="c-object_props-value" data-key="'+f+'" title="'+(({}).toString.call(obj[f]))+'">' +
-								JSON.stringify(obj[f], function(k,v){ 
-									switch(typeof v) {
-										case "boolean":
-										case "number":
-										case "string":
-											return v;
-										case "undefined":
-											return "undefined";
-										default:
-											if(v === null || v instanceof Array)
-												return v;
-									}
-									try {
-										return v instanceof Function 
-										? ({}).toString.apply(v)
-										: v;
-									} catch(ex) {
-										console.info(ex);
-										return ({}).toString.apply(v)
-									}
-								}).replace(/</g, '&lt;') + '</div>');
-// 							} 
-// 							else {
-// 								col2_html.push('<div class="c-object_props-value" data-key="'+f+'" title="'+(({}).toString.call(obj[f]))+'">'+JSON.stringify(obj[f]).replace(/</g, '&lt;')+'</div>');
-// 							}
+							col2_html.push('<div class="c-object_props-value" data-key="'+f+'" title="'+(({}).toString.call(obj[f]))+'">' +
+							json_enc(obj[f],1).replace(/</g, '&lt;') + '</div>');
 						} catch(ex) {
 							col2_html.push('<div class="c-object_props-value" data-key="'+f+'" title="!!! Error: '+ex.message+' !!!">'+(({}).toString.call(obj[f]))+'</div>');
 							row_class = ' mod_error';
 						}
 				}
 				
-				col1_html.push('<div class="c-object_props-key '+(selected_key==f?'state_active':'')+row_class+'">'+f+'</div>');
+				col1_html.push('<div class="c-object_props-key '+(/*selected_key==f?'state_active':*/'')+row_class+'">'+f+'</div>');
 			}
 			
 			var html = ['<div class="c-object_props-cols '+(ev.show_toolbar?'':'mode_without_toolbar')+'"><div class="c-object_props-col1">',
@@ -2049,7 +2055,7 @@ function littlelisp_ide_onclick(event) {
 			type: 'load', 
 			target: document.getElementById(dbg_id+'_watch').firstElementChild,
 			show_toolbar: false,
-			object_to_load: (ex == "Breakpoint!" ? selected_ctx.scope : selected_ctx ),
+			object_to_load: ((ex && ex != "Breakpoint!") ? selected_ctx : selected_ctx.scope ),
 			clear_before_load: true
 		});
 		
