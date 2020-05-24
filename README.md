@@ -39,7 +39,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 (x + 1 2 3)            ;; -> (+ x 1 2 3) => x+1+2+3
 (x ++)                 ;; -> (++ x) 
 (++ x y z)             ;; -> increments variables x, y, z separately
-
+```
 
 ```lisp
 (setq x (window.prompt "Value of X:")) ;; enter any value
