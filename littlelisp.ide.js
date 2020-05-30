@@ -229,6 +229,7 @@ function html_onmouse(event) {
 		else ev.cancelBubble = true;
 		document.ondragstart = function(){ return false; }
 		document.body.onselectstart = function() { return false } // IE8
+		ev.preventDefault(); // new browsers
 		
 		// стартовые кординаты мыши
 		trg.setAttribute('data-mousedown_point', ev_pageX+' '+ev_pageY+' '+ev.clientX+' '+ev.clientY);
@@ -792,10 +793,10 @@ if(!html_onmouse.extensions) {
  */
 
 function littlelisp_ide_onclick(event) {
-	var ev = (html_onclick||{}).ev || event;
-	var trg1 = (html_onclick||{}).trg1 || event.target;
-	var trg1p = (html_onclick||{}).trg1p || trg1.parentNode;
-	var trg1pp = (html_onclick||{}).trg1p || trg1.parentNode.parentNode;
+	var ev = event;
+	var trg1 = arguments[1] || document.head.parentNode;
+	var trg1p = arguments[2] || document.head.parentNode;
+	var trg1pp = arguments[3] || document.head.parentNode;
 	var find_near = (html_onclick||{}).find_near || function(){ alert("Error! html_onclick.find_near not found!"); };
 
 	// c-object_props
@@ -1221,11 +1222,12 @@ function littlelisp_ide_onclick(event) {
 	}
 
 	// cmd_code_editor_save
-	if(trg1.className.indexOf('cmd_code_editor_save') > -1 || trg1p.className.indexOf('cmd_code_editor_save') > -1) {
+	// TODO target not my
+	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_save') > -1 || trg1p.className.indexOf('cmd_code_editor_save') > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
-		var littlelisp_ide_main_window = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = littlelisp_ide_main_window.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
-		var new_code = littlelisp_ide_main_window.value || littlelisp_ide_main_window.innerHTML;
+		var win = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
+		var file_name = win.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
+		var new_code = win.value || win.innerHTML;
 		
 		// сохранение файла в главном окне
 		if(win_id == "littlelisp_ide_main_window") {
@@ -1240,33 +1242,22 @@ function littlelisp_ide_onclick(event) {
 					return;
 			}
 			
-			// дадим знать, что идёт сохранение
-			var trg = trg1p.className.indexOf('cmd_code_editor_save') > -1 ? trg1p : trg1;
-			trg.style.opacity = 0.4;
-			setTimeout(function(){ trg.style.opacity = 1; }, 500);
-			
-			// сохраним
-			localStorage.setItem("littlelisp_file_"+file_name, new_code);
+			html_onclick({type: "save_file", file_name: file_name, file_content: new_code, target: trg1});
 			
 			return;
 		}
 		
 		// сохранение в дебагере (если это текст всего файла)
-		if(win_id.match(/^littlelisp_debugger_/) && littlelisp_ide_main_window.getAttribute('data-file_name')) {
+		if(win_id.match(/^littlelisp_debugger_/) && win.getAttribute('data-file_name')) {
 			
-			// дадим знать, что идёт сохранение
-			var trg = trg1p.className.indexOf('cmd_code_editor_save') > -1 ? trg1p : trg1;
-			trg.style.opacity = 0.4;
-			setTimeout(function(){ trg.style.opacity = 1; }, 500);
-			
-			localStorage.setItem("littlelisp_file_"+file_name, new_code);
+			html_onclick({type: "save_file", file_name: file_name, file_content: new_code, target: trg1});
 			
 			// TODO restart debugger?
 			return;
 		}
 		
 		/* если сохранение в дебагере или в классброузере */
-		var func_name = (littlelisp_ide_main_window.getAttribute("data-full-name")||"").replace(/^window\./, "");
+		var func_name = (win.getAttribute("data-full-name")||"").replace(/^window\./, "");
 		
 		// новый класс или метод?
 		if(!func_name) {
@@ -1283,7 +1274,7 @@ function littlelisp_ide_onclick(event) {
 			
 			// если файл новый, то заменим содержимое и всё
 			if ("littlelisp_file_"+file_name in localStorage == false) {
-				localStorage.setItem("littlelisp_file_"+file_name, new_code);
+				html_onclick({type: "save_file", file_name: file_name, file_content: new_code, target: trg1});
 				return;
 			}
 		}
@@ -1306,17 +1297,17 @@ function littlelisp_ide_onclick(event) {
 		var start_len = parse_result[parse_result.length-1];
 		
 		// сгенерируем новое содержимое файла
-		var new_file_content = file_content.substring(0, start_len >> 10) + new_code + file_content.substring((start_len >> 10) + (start_len & 1023));
+		var new_file_content = file_content.substring(0, start_len >> 16) + new_code + file_content.substring((start_len >> 16) + (start_len & 65535));
 		
-		localStorage.setItem('littlelisp_file_'+file_name, new_file_content);
+		html_onclick({type: "save_file", file_name: file_name, file_content: new_file_content, target: trg1});
 		
-		// TODO eval in class_browser
+		// TODO eval in class_browser?
 		
 		return;
 	}
 
 	// cmd_code_editor_run
-	if(trg1.className.indexOf('cmd_code_editor_run') > -1 || trg1p.className.indexOf('cmd_code_editor_run') > -1) {
+	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_run') > -1 || trg1p.className.indexOf('cmd_code_editor_run') > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var littlelisp_ide_main_window = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
 		var file_name = littlelisp_ide_main_window.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
@@ -1331,7 +1322,7 @@ function littlelisp_ide_onclick(event) {
 		try {
 			// если в дебагере, то на основе текущего контекста создаём новый дебагер
 			if(win_id.match(/^littlelisp_debugger_/))
-				var littlelisp_debugger = littleLisp.debug(src, file_name+"-debug"+littlelisp_ide_onclick.debugger_win_next_num, document.getElementById(win_id).littlelisp_debugger.ctx);
+				var littlelisp_debugger = littleLisp.debug(src, file_name /* +"-debug"+littlelisp_ide_onclick.debugger_win_next_num */, document.getElementById(win_id).littlelisp_debugger.ctx);
 			
 			// иначе в глобальной области видимости
 			else 
@@ -1393,7 +1384,7 @@ function littlelisp_ide_onclick(event) {
 		
 		// если в дебагере, то на основе текущего контекста создаём новый дебагер
 		if(win_id.match(/^littlelisp_debugger_/))
-			var littlelisp_debugger = littleLisp.debug(src, file_name+"-debug"+littlelisp_ide_onclick.debugger_win_next_num, document.getElementById(win_id).littlelisp_debugger.ctx);
+			var littlelisp_debugger = littleLisp.debug(src, file_name /* +"-debug"+littlelisp_ide_onclick.debugger_win_next_num */, document.getElementById(win_id).littlelisp_debugger.ctx);
 		
 		// иначе в глобальной области видимости
 		else 
@@ -1436,7 +1427,7 @@ function littlelisp_ide_onclick(event) {
 	}
 	
 	// cmd_code_editor_continue
-	if(ev.type == "click" && trg1.className.indexOf('cmd_code_editor_continue') > -1 || trg1p.className.indexOf('cmd_code_editor_continue') > -1) {
+	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_continue') > -1 || trg1p.className.indexOf('cmd_code_editor_continue') > -1)) {
 	
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		
@@ -1505,8 +1496,8 @@ function littlelisp_ide_onclick(event) {
 		else 
 			littlelisp_debugger.step_in();
 		} catch(ex) {
-			console.error(ex.stack);
-			alert(ex.stack);
+			console.error(ex.stack || ex);
+			alert(ex.stack || ex);
 		}
 		
 		// выделяем фрагмент кода текущий
@@ -1577,7 +1568,9 @@ function littlelisp_ide_onclick(event) {
 			var src = editor.value;
 		else
 			var src = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-		
+
+			try {
+				
 			// если в дебагере, то на основе текущего контекста создаём новый дебагер
 			if(win_id.match(/^littlelisp_debugger_/))
 				var littlelisp_debugger = littleLisp.debug(src, file_name, document.getElementById(win_id).littlelisp_debugger.ctx);
@@ -1586,8 +1579,19 @@ function littlelisp_ide_onclick(event) {
 			else 
 				var littlelisp_debugger = littleLisp.debug(src, file_name);
 			
+			} catch(ex) {
+				alert(ex.stack);
+				return;
+			}
+			
 			try {
 				var result = littlelisp_debugger.continue();
+				
+				// удалим дебагер из списка дебагеров
+				for (var i in littleLisp.debuggers)
+					if (littleLisp.debuggers[i] == littlelisp_debugger)
+						delete littleLisp.debuggers[i];
+				
 			} catch(ex) {
 				if(ex != "Breakpoint!") {
 					alert(ex);
@@ -1735,14 +1739,15 @@ function littlelisp_ide_onclick(event) {
 			type: 'winshow', 
 			target: document.getElementById(win.id)});
 		
+		// TODO firefox - no classes
 		var js_class_names = ["<option>Number</option>", "<option>String</option>", "<option>Boolean</option>", "<option>Symbol</option>", "<option>Date</option>", "<option>Array</option>", "<option>Object</option>", "<option>Function</option>"];
 		var lisp_class_names = {};
 		for(var name in window) {
-			if(window[name] && window[name].prototype && "QWFPGJLUYARSTDHNEIOZXCVBKM".indexOf(name[0]) > -1) {
-				if(window[name].file && window[name].source) {
-					if(window[name].file in lisp_class_names == false)
-						lisp_class_names[window[name].file] = [];
-					lisp_class_names[window[name].file].push("<option>"+name+"</option>");
+			if(window[name] && window[name].prototype && "QWFPGJLUYARSTDHNEIOZXCVBKMЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЬЗЧЦВБКМЁЪ".indexOf(name[0]) > -1) {
+				if(window[name].__file && window[name].__source) {
+					if(window[name].__file in lisp_class_names == false)
+						lisp_class_names[window[name].__file] = [];
+					lisp_class_names[window[name].__file].push("<option>"+name+"</option>");
 				}
 				else
 					js_class_names.push("<option>"+name+"</option>");
@@ -1839,7 +1844,7 @@ function littlelisp_ide_onclick(event) {
 		// загрузим исходный код метода в редактор кода
 		var id = trg1p.id.replace(/_(class|object)_methods/, "");
 		var code_editor = document.getElementById(id+"_code_editor");
-		if ("args_names" in func == false) {
+		if ("__args_names" in func == false) {
 			code_editor.value = func.toString();
 			code_editor.setAttribute("data-source-offset", 0);
 			code_editor.setAttribute("data-full-name", full_name);
@@ -1848,18 +1853,18 @@ function littlelisp_ide_onclick(event) {
 		else {
 		
 			// ищем открывающую скобку всего определения метода
-			for(var start = (func.args_names[func.args_names.length-1] >> 10)-1; start >= 0; start--)
-				if(func.source[start] == '(') break;
+			for(var start = (func.__args_names[func.__args_names.length-1] >> 16)-1; start >= 0; start--)
+				if(func.__source[start] == '(') break;
 				
 			// ...и закрывающую
-			for(var end = (func.body[func.body.length-1] >> 10) + (func.body[func.body.length-1] & 1023) + 1; end > func.source.length; end++)
-				if(func.source[end] == ')') break;
+			for(var end = (func.__body[func.__body.length-1] >> 16) + (func.__body[func.__body.length-1] & 65535) + 1; end > func.__source.length; end++)
+				if(func.__source[end] == ')') break;
 			
 			// вырежем и загрузим фрагмент кода-определения метода
-			code_editor.value = func.source.substring(start, end);
+			code_editor.value = func.__source.substring(start, end);
 			code_editor.setAttribute("data-source-offset", start);
 			code_editor.setAttribute("data-full-name", full_name);
-			code_editor.getAttribute("data-file_name", func.file);
+			code_editor.getAttribute("data-file_name", func.__file);
 		}
 			
 	}
@@ -2007,6 +2012,7 @@ function littlelisp_ide_onclick(event) {
 			document.getElementById('littlelisp_ide_main_window_src').value = "";
 		else
 			document.getElementById('littlelisp_ide_main_window_src').value = last_file_content;
+		document.getElementById('littlelisp_ide_main_window_src').focus();
 			
 		// выделим редактируемый файл если загрузили успешно
 		if(typeof last_file_content != "undefined")
@@ -2037,7 +2043,7 @@ function littlelisp_ide_onclick(event) {
 			option.value = call_stack_select.options.length;
 			
 			// надпись
-			var start_offset = curr_ctx.input[0] >> 10;
+			var start_offset = curr_ctx.input[0] >> 16;
 			var option_caption = curr_ctx.file + ':' + curr_ctx.range(1) + ' - ' + curr_ctx.source.substring(start_offset, start_offset+100);
 			option.innerHTML = option_caption.length > 100 
 				? option_caption.substring(0, 100) + '...' 
@@ -2133,12 +2139,72 @@ function littlelisp_ide_onclick(event) {
 		}
 	}
 	
+	// [hide_littlelisp_js_ide]
 	if(ev.type == "hide_littlelisp_js_ide" || (ev.type == "click" && trg1.id == "littlelisp_ide_main_window_show_hide")) {
 		var ide_win = document.getElementById("littlelisp_ide_main_window");
 		if (ide_win) ide_win.style.display = "none";
 		
 		// покажем кнопку
 		(document.getElementById("littlelisp_ide_main_window_show")||{}).innerHTML = "Show IDE";
+	}
+
+	// [save_file]
+	if(ev.type == "save_file") {
+		// дадим знать, что идёт сохранение
+		var trg = trg1p.className.indexOf('cmd_code_editor_save') > -1 ? trg1p : trg1;
+		trg.style.opacity = 0.4;
+		setTimeout(function(){ trg.style.opacity = 1; }, 500);
+		
+		if (!ev.file_content) {
+			alert("New content is empty! (canceled saving)");
+			debugger;
+			return;
+		}
+		
+		// сохраним
+		localStorage.setItem("littlelisp_file_"+ev.file_name, ev.file_content);
+		
+		// также обновим контент в главном окне если открыто
+		if (document.getElementById('loacalStorage_files').value == ev.file_name) {
+			var editor1 = document.getElementById("littlelisp_ide_main_window").querySelector(".c-code_editor-textarea");
+			if (editor1.value != ev.file_content)
+				editor1.value = ev.file_content;
+		}
+	}
+	
+	// [debugger.*]
+	if(ev.type.indexOf("debugger.") > -1) {
+		var panel = document.getElementById("littlelisp_ide_panel");
+		
+		// поищем кнопку, и если есть откроем окно дебагера
+		for (var ii = 0; ii < panel.childNodes.length; ii++) {
+			var button = panel.childNodes[ii];
+			if (button.littlelisp_debugger == ev.debugger) {
+				var id = button.innerHTML.replace(/.+?#/, '');
+				if (! document.getElementById("littlelisp_debugger_"+id))
+					button.click();
+				else
+					html_onclick({type: "refresh_dbg_debugger", dbg_id: "littlelisp_debugger_"+id});
+				return
+			}
+		}
+		
+		// иначе добавим кнопку на панель
+		var button = document.createElement('BUTTON');
+		button.className = "cmd_code_editor_debugger";
+		button.innerHTML = "<i></i>Debugger #"+(littlelisp_ide_onclick.debugger_win_next_num++);
+		button.littlelisp_debugger = ev.debugger;
+
+		if(document.getElementById("littlelisp_ide_panel")) {
+			panel.insertBefore(button, panel.firstElementChild);
+		}
+		else {
+			button.className = "c-panel-btn cmd_code_editor_debugger";
+			document.querySelector("#littlelisp_ide_main_window .c-toolbar").appendChild(button);
+		}
+		
+		// и нажмём на неё, чтоб дебагер открылся
+		button.click();
 	}
 }
 

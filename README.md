@@ -1,6 +1,6 @@
 # Little Lisp
 
-A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocation, lambdas, OOP (!), if/while statements, numbers, strings and many other. Use "window" as default scope. Can call a JS functions, read/write object fields, call object methods, create objects.
+A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocation, lambdas, OOP (!), TCO, if/while statements, numbers, strings and many other. Use "window" as default scope. Can call a JS functions, read/write object fields, call object methods, create JS objects.
 
 * Original author: Mary Rose Cook <mary@maryrosecook.com>
 * Fully refactored by Saemon Zixel <saemonzixel@gmail.com>
@@ -32,7 +32,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 ```
 
 ```lisp
-;; syntactic sugar examples
+;; examples of syntactic sugar (implemented in parser)
 (x < 2)                ;; -> (< x 2)
 ((x < 2) && (x > -1))  ;; -> (&& (< x 2) (> x -1))
 ((x < 2) || (x > -1))  ;; -> (|| (< x 2) (> x -1))
@@ -113,20 +113,23 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 
 ```lisp
 (defun f1 (x) (alert (x + " - ok!")))
-(f1 "f1")
+(f1 "test 'f1'")
 ```
 
 ```lisp
 (typeof true) ;; "boolean"
 (typeof undefined) ;; "undefined"
-(typeof "abc") ;; "string"
 (typeof 123) ;; "number"
-(typeof :abc) ;; "atom"
-(typeof :abc-def-123) ;; "atom"
-(typeof 'abc) ;; "atom"
-(typeof #abc) ;; "atom"
+(typeof "abc") ;; "string"
+(typeof abc) ;; "undefined" - because it's variable name 
+(typeof :abc) ;; "string" - because JavaScript don't know anything about atoms
+(typeof :abc-def-123) ;; "string"
+(typeof 'abc) ;; "string"
+(typeof #abc) ;; "string"
+(typeof it_is.0nly.1.at-om) ;; "string"
+(typeof ++) ;; "string" (also atom in littlelisp)
 (typeof (1 2 3)) ;; "object" - return [1, 2, 3]
-(typeof '(abc cde fgh)) ;; "object" - return ["abc", "cde", "fgh"]
+(typeof '(abc cde fgh)) ;; "object" - in JavaScript array is object
 (typeof (new Object)) ;; "object"
 (typeof null) ;; "object" - it's  historical bug of JavaScript language
 (typeof 123 :eq "number") ;; return true
@@ -134,6 +137,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 
 ```lisp
 (catch (a.b)) ;; return Exception object (Error: "a" is undefined!)
+(throw (new Error "Error!")) ;; throws JavaScript exception
 ```
 
 ```lisp

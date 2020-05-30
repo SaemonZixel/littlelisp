@@ -14,7 +14,7 @@ console.log("\n\033[1m%s\033[0m\n", test);
 try {
 result = littleLisp.parse(test); // console.log(JSON.stringify(result));
 } catch(ex) { result = ex; }
-console.assert(result == "Error: No 3 closing brackets found at the end!", result);
+console.assert(result == "Error: No 2 closing brackets found at the end!", result);
 
 // Parse "ambda"
 test = "(setq test1 (lambda (x y) (alert x)))";
@@ -36,6 +36,16 @@ console.assert(result == expect.toString(), result);
 console.log("\n\033[1m%s\033[0m\n", test = "(1 / 0)");
 result = littleLisp.parse(test); // console.log(JSON.stringify(result));
 expect = [ 196609, 65537, 327681, 7 ];
+console.assert(result == expect.toString(), result);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(num ++)");
+result = littleLisp.parse(test); // console.log(JSON.stringify(result));
+expect = [ 327682, 65539, 8 ];
+console.assert(result == expect.toString(), result);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(num &num)");
+result = littleLisp.parse(test); // console.log(JSON.stringify(result));
+expect = [ 65539, 327684, 10 ];
 console.assert(result == expect.toString(), result);
 
 // TODO (++i)
@@ -93,13 +103,27 @@ console.assert(result == 8, result);
 
 console.log("\n\033[1m%s\033[0m\n", test = "(++ arg1 obj1.a arg2 arg2)");
 obj1 = {a: 1};
-arg1 = 5;
+arg1 = "5";
 arg2 = 9;
 result = littleLisp.eval(test);
 console.assert(result == 11, result);
 console.assert(obj1.a == 2, "obj1.a = %s", obj1.a);
 console.assert(arg1 == 6, "arg1 = %s", arg1);
 console.assert(arg2 == 11, "arg2 = %s", arg2);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(++ arg1 arg2 arg1 arg2)");
+arg1 = "5";
+arg2 = 9;
+result = littleLisp.eval(test);
+console.assert(result == 11, result);
+console.assert(arg1 == 7, "arg1 = %s", arg1);
+console.assert(arg2 == 11, "arg2 = %s", arg2);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(num ++)");
+num = 9;
+result = littleLisp.eval(test);
+console.assert(result == 10, result);
+console.assert(num == 10, "num = %s", num);
 
 console.log("\n\033[1m%s\033[0m\n", test = "(setq arg1 7)");
 arg1 = 5;
@@ -152,6 +176,11 @@ arg1 = true;
 result = littleLisp.eval(test);
 console.assert(result[2] == 123, result);
 
+console.log("\n\033[1m%s\033[0m\n", test = "(while (arg1 < 10) (arg1 ++) (continue) (setq arg1 999))");
+arg1 = 0;
+result = littleLisp.eval(test);
+console.assert(arg1 == 10, arg1);
+
 // TODO
 // console.log("\n\033[1m%s\033[0m\n", test = "(while (arg1) (console.log arg1) (setq arg1 undefined))");
 // arg1 = true;
@@ -180,3 +209,38 @@ console.assert(result[0] == 999, result);
 console.log("\n\033[1m%s\033[0m\n", test = "(catch (a.b))");
 result = littleLisp.eval(test); // console.info(typeof result);
 console.assert(result == "Error: \"a\" is undefined!", result);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(throw 'exception1)");
+try {
+	result = littleLisp.eval(test); // console.info(typeof result);
+} catch(ex) { 
+	result = ex; 
+}
+console.assert(result == "exception1", result);
+
+
+console.log("\n\033[1m%s\033[0m\n", test = "(unsetq obj1.a obj1.@arg1 arg1)");
+obj1.a = 1;
+obj1.b = 2;
+arg1 = "b";
+result = littleLisp.eval(test); // console.info(typeof result);
+console.assert(result == undefined, result);
+console.assert("a" in obj1 == false, obj1);
+console.assert("b" in obj1 == false, obj1);
+console.assert(typeof arg1 == "undefined", window["arg1"]);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(defun test1 (a) (return a)) (test1 0)");
+delete test1;
+result = littleLisp.eval(test); // console.info(result);
+console.assert(result[1] == 0, result);
+
+console.log("\n\033[1m%s\033[0m\n", test = "(defun test1 (a) (if (a > 30) (throw 'break)) (test1 (a + 1))) (test1 0)");
+delete test1;
+var debugger1 = littleLisp.debug(test);
+try {
+	result = debugger1.continue(); 
+} catch(ex) { /* skip */ }
+// console.info(debugger1.ctx.type, debugger1.ctx.parent.type, debugger1.ctx.parent.parent.type, debugger1.ctx.parent.parent.parent.type, debugger1.ctx.parent.parent.parent.parent.type);
+console.assert(debugger1.ctx.parent.parent.parent.parent.type == 32, debugger1.ctx.parent.parent.parent.parent);
+console.assert(debugger1.ctx.parent.parent.type, debugger1.ctx.parent.parent);
+

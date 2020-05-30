@@ -8,7 +8,7 @@ var atom_alphabet =
 "_.,?@"; // additional atom chars
 
 var Context = function(scope, parent, input, index, source, file, ctx_type) {
-	this.type = ctx_type; // undef - list, 2 - catch, 4 - while,for,switch, 16 - function, 32 - nested debugging
+	this.type = ctx_type || 0; // undef/0 - list, 2 - catch, 4 - while,for,switch, 16 - function, 32 - nested debugging
 	this.parent = parent;
 	this.scope = scope;
 	this.input = input;
@@ -77,14 +77,18 @@ Context.prototype.range = function(type, point) {
 	debugger;
 }
 
-Context.prototype.set = function(identifier, value) {
+Context.prototype.set = function(identifier, value, is_unset_mode) {
 		
 	// obj.field1... ?
 	var prefix_len = identifier.indexOf(".");
 	
 	// identifier only
-	if (prefix_len < 0) 
-		this.scope[identifier == "this" ? "thiz" : identifier] = value;
+	if (prefix_len < 0) {
+		if (is_unset_mode)
+			delete this.scope[identifier == "this" ? "thiz" : identifier];
+		else
+			this.scope[identifier == "this" ? "thiz" : identifier] = value;
+	}
 	
 	// identifier.field_name1.field_name2...
 	else {
@@ -109,7 +113,7 @@ Context.prototype.set = function(identifier, value) {
 		
 		// если не существует объект сообщим
 		if (obj === undefined || obj === null)
-			throw "Error! "+prefix+" is "+(typeof obj)+"!";
+			throw "Error! "+prefix+" is "+(obj == null ? "null" : typeof obj)+"!";
 		
 		// field chain...
 		while (obj && identifier.indexOf(".", prefix_len+1) > -1) {
@@ -161,7 +165,10 @@ Context.prototype.set = function(identifier, value) {
 				throw "Not found value for \"@"+prefix+"\"!";
 		}
 		
-		obj[prefix] = value;
+		if (is_unset_mode)
+			delete obj[prefix];
+		else
+			obj[prefix] = value;
 	}
 	
 	return value;
@@ -186,6 +193,7 @@ Context.prototype.interpret_elem = function() {
 		
 		// ???
 		debugger;
+		throw new Error("???");
 	} 
 	
 	var char_code = this.source.charCodeAt(this.input[this.indx] >> 16);
@@ -355,6 +363,7 @@ Context.prototype.interpret_elem = function() {
 			return this.result[this.indx] = undefined, true;
 		
 		debugger;
+		throw new Error("???");
 	}
 				
 	// ???
@@ -452,7 +461,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 
 			// ++, --
 			if ((len == 2 && ctx.source[off] == '+' && ctx.source[off+1] == '+' || (len == 2 && ctx.source[off] == '-' && ctx.source[off+1] == '-'))) {
-				ctx.result[ctx.indx] = ctx.result[ctx.indx] + (ctx.source[off] == '+' ? 1 : -1);
+				ctx.result[ctx.indx] = ctx.result[ctx.indx]*1 + (ctx.source[off] == '+' ? 1 : -1);
 				ctx.set(
 					ctx.source.substring(ctx.input[ctx.indx] >> 16,
 						(ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535)),
@@ -698,6 +707,53 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
+	}
+	
+	// (unset/unsetq x ...)
+	if ((len == 5 || len == 6) && ctx.source[off] == "u" 
+	&& ctx.source[off+1] == "n" && ctx.source[off+2] == "s" 
+	&& ctx.source[off+3] == "e" && ctx.source[off+4] == "t" 
+	&& (len == 6 ? ctx.source[off+5] == "q" : true)) {
+		
+		// skip first token
+		if (ctx.indx == 0) {
+			ctx.indx = 1;
+			return ctx;
+		}
+		
+		if (ctx.indx < ctx.input.length-1) {
+			// setq
+			if (len == 6)
+				ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535));
+			
+			// set
+			else {
+				// вычесляем переменную (если список, то переключаемся на него)
+				if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+					return ctx.result[ctx.indx]; /* return Context */
+			}
+			
+			// делаем дело
+			ctx.set(ctx.result[ctx.indx], undefined, true);
+			
+			ctx.indx++;
+			return ctx;
+		}
+		
+		// закончили
+		ctx.result = undefined;
+		
+		// return to parent or no-parent (or debugging ctx)
+		if (ctx.parent && !(ctx.type & 32)) {
+			ctx.parent.result[ctx.parent.indx] = ctx.result;
+			ctx = ctx.parent;
+			continue;
+		}
+		else {
+			ctx.indx = ctx.input.length;
+			return ctx;
+		}
 	}
 	
 	// (get/put ...) ?
@@ -753,6 +809,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (if () ... :else ... :elseif ...)
@@ -867,6 +924,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (while ... ...)
@@ -892,7 +950,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				return ctx.result[ctx.indx]; /* return Context */
 			
 			// -> true
-			// TODO check one atom into list?
+			// TODO check one atom in the list?
 			if (!!ctx.result[1]) { 
 				ctx.indx = 2;
 				return ctx; 
@@ -936,6 +994,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (catch ...)
@@ -943,7 +1002,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		&& ctx.source[off+2] == "t" && ctx.source[off+3] == "c" 
 		&& ctx.source[off+4] == "h") {
 		
-		// while (skip)
+		// catch (skip)
 		if (ctx.indx == 0) {
 			ctx.indx = 1;
 			ctx.type |= 2; // + type=catch
@@ -962,6 +1021,41 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			// return to parent or no-parent (or debugging ctx)
 			if (ctx.parent && !(ctx.type & 32)) {
 				ctx.parent.result[ctx.parent.indx] = ctx.result;
+				ctx = ctx.parent;
+				continue;
+			}
+			else {
+				ctx.indx = ctx.input.length;
+				return ctx;
+			}
+		}
+		
+	}
+	
+	// (throw ...)
+	else if (len == 5 && ctx.source[off] == "t" && ctx.source[off+1] == "h" 
+		&& ctx.source[off+2] == "r" && ctx.source[off+3] == "o" 
+		&& ctx.source[off+4] == "w") {
+		
+		// throw (skip)
+		if (ctx.indx == 0) {
+			ctx.indx = 1;
+			return ctx;
+		}
+		
+		// throw-body
+		if (ctx.indx == 1) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+				return ctx.result[ctx.indx]; /* return Context */
+			
+			// кидаем эксепшен
+			throw ctx.result[1];
+			
+			// return to parent or no-parent (or debugging ctx)
+			if (ctx.parent && !(ctx.type & 32)) {
+				ctx.parent.result[ctx.parent.indx] = ctx.result[1];
 				ctx = ctx.parent;
 				continue;
 			}
@@ -1033,11 +1127,13 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (defun <name> (args...) (...body...)) 
 	// (defmeth <name> (args...) (...body...)) 
 	// (defmeth-static <name> (args...) (...body...))
+	// (defclassmeth <name> (args...) (...body...))
 	else if (len == 5 && ctx.source[off] == "d" && ctx.source[off+1] == "e" 
 			&& ctx.source[off+2] == "f" && ctx.source[off+3] == "u" 
 			&& ctx.source[off+4] == "n" 
@@ -1045,6 +1141,12 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'm'
 			&& ctx.source[off+4] == 'e' && ctx.source[off+5] == 't'
 			&& ctx.source[off+6] == 'h')
+			|| (len == 12 && ctx.source[off] == 'd' && ctx.source[off+1] == 'e' 
+			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'c'
+			&& ctx.source[off+4] == 'l' && ctx.source[off+5] == 'a'
+			&& ctx.source[off+6] == 's' && ctx.source[off+7] == 's'
+			&& ctx.source[off+8] == 'm' && ctx.source[off+9] == 'e'
+			&& ctx.source[off+10] == 't' && ctx.source[off+11] == 'h')
 			|| (len == 14 && ctx.source[off] == 'd' && ctx.source[off+1] == 'e' 
 			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'm'
 			&& ctx.source[off+4] == 'e' && ctx.source[off+5] == 't'
@@ -1091,7 +1193,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			
 			// дополнительно сохраним исходный код функции на теле функции
 			func.__args_names = ctx.input[2];
-			func.__body = ctx.input[3];
+			func.__body = ctx.input.slice(3);
 			func.__source = ctx.source;
 			func.__file = ctx.file;
 			
@@ -1119,6 +1221,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (defclass <name> ...)
@@ -1251,6 +1354,15 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 	}
 	
+	// TODO (defmacro <name> (args...) (...body...))
+	else if (len == 8 && ctx.source[off] == "d" && ctx.source[off+1] == "e" 
+			&& ctx.source[off+2] == "f" && ctx.source[off+3] == "m" 
+			&& ctx.source[off+4] == "a" && ctx.source[off+4] == "c"
+			&& ctx.source[off+4] == "r" && ctx.source[off+4] == "o") {
+		throw new Error("Macroses not implemented yet.");
+		debugger;
+	}
+	
 	// (new <name> args...)
 	else if (len == 3 && ctx.source[off] == "n" && ctx.source[off+1] == "e" && ctx.source[off+2] == "w") {
 		
@@ -1304,7 +1416,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			ctx.result[0].__proto__ = ctx.result[1].prototype;
 			
 			// найдём конструктор
-			var ctor_name = ctx.result[1].toString().match(/{[a-zA-Z_0-9]+\.prototype\['([^']+)'\]/);
+			var ctor_name = ctx.result[1].toString().match(/{[^.]+\.prototype\['([^']+)'\]/);
 			if (ctor_name) {
 				
 				// существует ли конструктор/функция?
@@ -1427,6 +1539,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (continue)
@@ -1435,7 +1548,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		&& ctx.source[off+4] == "i" && ctx.source[off+5] == "n" 
 		&& ctx.source[off+6] == "u" && ctx.source[off+7] == "e") {
 		
-		// break (skip)
+		// skip first token
 		if (ctx.indx == 0) {
 			ctx.indx = 1;
 			return ctx;
@@ -1453,9 +1566,15 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			
 			// переключимся на контекст цикла обратно
 			if (return_ctx && return_ctx.type & 4) {
-				return_ctx.result[return_ctx.indx] = undefined;
 				ctx = return_ctx;
-				continue;
+				ctx.result[ctx.indx] = undefined;
+				
+				// while ?
+				if (ctx.source[ctx.input[0] >> 16] == 'w') { 
+					ctx.result = []; // почистим для след.итерации
+					ctx.indx = 1; // switch to while-test
+				}
+				return ctx;
 			}
 			
 			// иначе ведём себя как break
@@ -1471,6 +1590,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (debugger)
@@ -1548,6 +1668,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		debugger;
+		throw new Error("???");
 	}
 	
 	// (....)
@@ -1595,8 +1716,29 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				for(var i = 0; i < arg_names.length-1; i++)
 					new_scope[ctx.result[0].__source.substring(arg_names[i] >> 16, 
 						(arg_names[i] >> 16) + (arg_names[i] & 65535))] 
-						= ctx.result[i+1] || undefined;
-			
+						= ctx.result[i+1];
+				
+				// Оптимизация хвостовой рекурсии.
+				for (var up_ctx = ctx; up_ctx; up_ctx = up_ctx.parent) {
+					
+					// если не в хвосте, то прервём выполнение
+					if (up_ctx.indx < up_ctx.input.length-2) break;
+					
+					// в хвосте функции?
+					if (up_ctx.type & 16) {
+						
+						// если тело одинаковое, то это рекурсия
+						if (up_ctx.input == ctx.result[0].__body) {
+							
+							// переиспользуем контекст функции и вернём его
+							up_ctx.scope = new_scope;
+							up_ctx.indx = 0;
+							up_ctx.result = [];
+							return up_ctx;
+						}
+					}
+				}
+						
 				return new Context(new_scope, ctx, ctx.result[0].__body, 0, ctx.result[0].__source, ctx.result[0].__file, 16 /* type=function */);
 			}
 			
@@ -1606,7 +1748,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		// иначе наверх ^|
-		// TODO LISP FUNCTION: return only last value?
+		// TODO return only last value if we and in a function?
 		else if (ctx.parent && !(ctx.type & 32)) {
 			ctx.parent.result[ctx.parent.indx] = ctx.result;
 			ctx = ctx.parent;
@@ -1840,7 +1982,7 @@ var parse = function(source, fragment_start_p) {
 			// (синтаксический сахар) если арефметический знак на втором месте, то переставим его на первое место
 			if (list_stack[list_stack.length-1].length == 2 
 			&& "+-*/%<>!=&|".indexOf(source[tok_start]) > -1 
-			&& (tok_len == 1 || source[tok_start] == '&' && "+-*/%<>!=&|".indexOf(source[tok_start+1]) > -1) /* exclude &keywords */) {
+			&& (tok_len < 2 || source[tok_start] != '&' || "+-*/%<>!=&|".indexOf(source[tok_start+1]) > -1) /* exclude &keywords */) {
 				list_stack[list_stack.length-1].push(list_stack[list_stack.length-1][1]);
 				list_stack[list_stack.length-1][1] = (tok_start << 16) + tok_len;
 			}
@@ -1853,6 +1995,7 @@ var parse = function(source, fragment_start_p) {
 		
 		// что это?
 		debugger;
+		throw new Error("???");
 	}
 	
 	// весь исходник целиком выделим под конец
@@ -1860,7 +2003,7 @@ var parse = function(source, fragment_start_p) {
 	
 	// если потеряли хоть одну незакрытую скобку, то список не закроется
 	if (list_stack.length > 1) {
-		throw new Error("No "+list_stack.length+" closing brackets found at the end!");
+		throw new Error("No "+(list_stack.length-1)+" closing brackets found at the end!");
 	}
 	
 	// если распарсили только один токен (atom/string/number...), то его и вернём
@@ -1875,13 +2018,16 @@ var parse = function(source, fragment_start_p) {
 var breakpoints = {};
 var debuggers = [];
 
-var Debugger = function(source_or_ctx, file, parent_ctx) {
-	this.in_debuggers = false;
+var Debugger = function(source_or_ctx, file, parent_ctx, onerror_callback) {
+	this.stop_now = false;
+	this.onerror = onerror_callback;
 	
 	if (source_or_ctx instanceof Context)
 		this.ctx = source_or_ctx;
 	else
 		this.ctx = new Context(parent_ctx ? parent_ctx.scope : window, parent_ctx, parse(source_or_ctx), undefined, source_or_ctx, file, 32 /* debugging_type */);
+
+	debuggers.push(this); // добавим себя в список существующих дебагеров
 }
 
 Debugger.prototype.step_in = function() {
@@ -1894,32 +2040,27 @@ Debugger.prototype.step_in = function() {
 
 Debugger.prototype.step_over = function(breakpoints_enabled) {
 	
-	// найдём контекст функции
-// 	for (var ctx_saved = this.ctx; (ctx_saved.type & 16+32) == false && ctx_saved.parent;)
-// 		ctx_saved = ctx_saved.parent;
 	var ctx_saved = this.ctx;
 	
 	if (this.ctx.indx >= this.ctx.input.length && !this.ctx.parent)
 		alert("Evaluting is finished!");
 	
-	while (this.ctx.indx < this.ctx.input.length) {
+	if (this.stop_now) this.stop_now = false; // отключим если включено
+	
+	while (this.ctx.indx < this.ctx.input.length && !this.stop_now) {
 		
 		// breakpoints
-		if (breakpoints_enabled && this.ctx.file in breakpoints &&
-			breakpoints[this.ctx.file][this.ctx.input[this.ctx.indx]])
-				throw "Breakpoint!";
+		if (breakpoints_enabled && this.ctx.file in breakpoints 
+		&& breakpoints[this.ctx.file][this.ctx.input[this.ctx.indx]]) {
+			if (this.onerror) this.onerror({type: "debugger.breakpoint", debugger: this});
+			throw "Breakpoint!";
+		}
 		
 		this.ctx = this.ctx.interpret_list(undefined, ctx_saved);
 		
-// 		for (var curr_ctx = this.ctx; curr_ctx; curr_ctx = curr_ctx.parent) {
-// 			if (curr_ctx == ctx_saved) return; // stop ctx
-// 			if (curr_ctx.type & 16+32) break; // break nested function ctx
-// 		}
-  
 		// либо на одном уровни, либо мы уже ниже
 		for (var curr_ctx = ctx_saved; curr_ctx; curr_ctx = curr_ctx.parent) {
 			if (curr_ctx == this.ctx) return;
-// 			if (this.ctx.indx == 0 && this.ctx.result.length == 0 && this.ctx.parent == ctx_saved) return; // зашли в список на 1 ниже
 		}
 	}
 }
@@ -1930,12 +2071,16 @@ Debugger.prototype.step_out = function(breakpoints_enabled) {
 	if (this.ctx.indx >= this.ctx.input.length && !this.ctx.parent)
 		alert("Evaluting is finished!");
 	
-	while (this.ctx.indx < this.ctx.input.length) {
+	if (this.stop_now) this.stop_now = false; // отключим если включено
+	
+	while (this.ctx.indx < this.ctx.input.length && !this.stop_now) {
 		
 		// breakpoints
-		if (breakpoints_enabled && this.ctx.file in breakpoints &&
-			breakpoints[this.ctx.file][this.ctx.input[this.ctx.indx]])
-				throw "Breakpoint!";
+		if (breakpoints_enabled && this.ctx.file in breakpoints 
+		&& breakpoints[this.ctx.file][this.ctx.input[this.ctx.indx]]) {
+			if (this.onerror) this.onerror({type: "debugger.breakpoint", debugger: this});
+			throw "Breakpoint!";
+		}
 		
 		this.ctx = this.ctx.interpret_list(false);
 		
@@ -1952,27 +2097,25 @@ Debugger.prototype.continue = function(skip_one_breakpoint) {
 	if (this.ctx.indx >= this.ctx.input.length && !this.ctx.parent)
 		alert("Evaluting is finished!");
 	
+	if (this.stop_now) this.stop_now = false; // отключим если включено
+	
 	if (this.ctx.input instanceof Array)
-	while (this.ctx.indx < this.ctx.input.length) {
+	while (this.ctx.indx < this.ctx.input.length && !this.stop_now) {
 		
 		// breakpoints
 		if (this.ctx.file in breakpoints 
 		&& breakpoints[this.ctx.file][this.ctx.input[this.ctx.indx]]
 		&& !skip_one_breakpoint) {
-			if (!this.in_debuggers) 
-				this.in_debuggers = debuggers.push(this), true;
-			
+			if (this.onerror) this.onerror({type: "debugger.breakpoint", debugger: this});
 			throw "Breakpoint!";
 		}
 		
 		try {
 			this.ctx = this.ctx.interpret_list(true);
 		} catch (ex) {
+			if (this.onerror) this.onerror({type: "debugger.exception", debugger: this});
+			alert(ex.stack);
 			console.info(ex.stack);
-			
-			if (!this.in_debuggers) 
-				this.in_debuggers = debuggers.push(this), true;
-			
 			throw ex;
 		}
 		
@@ -1993,6 +2136,8 @@ Debugger.prototype.continue = function(skip_one_breakpoint) {
 		if (!this.in_debuggers) 
 			this.in_debuggers = debuggers.push(this), true;
 		
+		if (this.onerror) this.onerror({type: "debugger.exception", debugger: this, ex: ex});
+		
 		throw ex;
 	}
 	
@@ -2005,8 +2150,9 @@ exports.littleLisp = {
 	parse: parse,
 	interpret: interpret,
 	eval: function(source, scope) { return interpret(parse(source), scope || window, source); },
-	debug: function(source, file, parent_ctx) { return new Debugger(source, file, parent_ctx); },
+	debug: function(source, file, parent_ctx, onerror_callback) { return new Debugger(source, file, parent_ctx, window["littlelisp_ide_onclick"] ?  littlelisp_ide_onclick : onerror_callback); },
 	breakpoints: breakpoints,
-	debuggers: debuggers
+	debuggers: debuggers,
+  	debuggersStopNow: function() { for (var i in debuggers) debuggers[i].stop_now = true; }
 };
 })(typeof exports === 'undefined' ? this : exports);

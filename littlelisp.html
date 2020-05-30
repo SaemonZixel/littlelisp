@@ -6,8 +6,14 @@
 	<script type="text/javascript" src="/littlelisp.js"></script>
 	<script type="text/javascript">
 	function repl(event) {
-		var result = littleLisp.eval(document.getElementById("code").value);
-// 		console.info(result);
+		try {
+			var result = littleLisp.eval(document.getElementById("code").value);
+		}
+		catch (ex) {
+			alert(ex);
+			return;
+		}
+
 		try {
 			alert("RESULT: " + (result instanceof Function 
 				? result : JSON.stringify(result)))
