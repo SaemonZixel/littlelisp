@@ -1,6 +1,6 @@
-# Little Lisp
+# Little Lisp JS
 
-A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocation, lambdas, OOP (!), TCO, if/while statements, numbers, strings and many other. Use "window" as default scope. Can call a JS functions, read/write object fields, call object methods, create JS objects.
+A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocation, lambdas, OOP (!), TCO, Macroses (experimental), embedded JSON, if/while statements, numbers, strings and many other. Use "window" as default scope. Can call a JS functions, read/write object fields, call object methods, create JS objects.
 
 * Original author: Mary Rose Cook <mary@maryrosecook.com>
 * Fully refactored by Saemon Zixel <saemonzixel@gmail.com>
@@ -57,6 +57,8 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 ;; empty string and 0 will be cast to false
 (if x 
 	(alert (+ "x = " x))
+:elseif (x = " ")
+	(alert "x = (empty string)")
 :else
 	(alert "x = (none)")
 )
@@ -120,14 +122,14 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 (typeof true) ;; "boolean"
 (typeof undefined) ;; "undefined"
 (typeof 123) ;; "number"
+(typeof 123.45) ;; "number"
 (typeof "abc") ;; "string"
 (typeof abc) ;; "undefined" - because it's variable name 
-(typeof :abc) ;; "string" - because JavaScript don't know anything about atoms
-(typeof :abc-def-123) ;; "string"
-(typeof 'abc) ;; "string"
-(typeof #abc) ;; "string"
-(typeof it_is.0nly.1.at-om) ;; "string"
-(typeof ++) ;; "string" (also atom in littlelisp)
+(typeof :abc) ;; "atom" - in JavaScript it's String object with "atom_prefix" field
+(typeof :abc-def-123) ;; "atom"
+(typeof 'abc) ;; "atom"
+(typeof #abc) ;; "atom"
+(typeof it_is.0nly.1.at-om) ;; "undefined"
 (typeof (1 2 3)) ;; "object" - return [1, 2, 3]
 (typeof '(abc cde fgh)) ;; "object" - in JavaScript array is object
 (typeof (new Object)) ;; "object"
@@ -145,7 +147,13 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 ((new Function "" "alert(document.title);")) ;; show title of opened web page
 ```
 
-## OOP Examples
+```lisp
+;; embedded JSON
+(setq obj1 {name: "object1", data:[1, 2, 3], toString: function(){ return this.name + "=" + this.data.join(","); }})
+```
+
+
+## OOP examples
 
 ```lisp
 (defclass Class1
@@ -182,4 +190,26 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 (setq tmp1 (new Class1 123 :inst_var2 "abc"))
 (window.alert tmp1.inst_var1)
 (tmp1.alert "456")
+```
+
+### Macroses support (EXPERIMENTAL) 
+```lisp
+(defmacro assign (var_name value) `(setq ,var_name ,value))
+(assign tmp 123)
+```
+
+```lisp
+(defmacro foreach (field_name _in obj _do code) 
+	(setq tmp_keys (gensym) tmp_count (gensym) tmp_indx (gensym))
+	
+	`(let ((,tmp_keys (Object.keys ,obj)) (,tmp_count (get ,tmp_keys "length")) (,tmp_indx -1))
+		(while ((++ ,tmp_indx) < ,tmp_count)
+			(setq ,field_name (get ,tmp_keys ,tmp_indx))
+			,code
+		)
+	)
+)
+
+(foreach name :in document.location :do (console.log name))
+
 ```

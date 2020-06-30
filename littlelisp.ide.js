@@ -14,7 +14,7 @@
  *
  */
 
-if("html_onclick" in window == false)
+if(!window["html_onclick"])
 function html_onclick(event) {
 	var ev = event || window.event;
 	var trg1 = ev.target || ev.srcElement || document.body.parentNode;
@@ -89,6 +89,7 @@ function html_onclick(event) {
 		html_onclick.extensions[i](ev, trg1, trg1p, trg1pp, find_near);
 }
 
+
 /* install html_onclick events (if first load) */
 if(!html_onclick.extensions) {
 	html_onclick.extensions = [];
@@ -119,7 +120,7 @@ if(!html_onclick.extensions) {
  *
  */
 
-if("html_onkey" in window == false)
+if(!window["html_onkey"])
 function html_onkey(event) {
 	var ev = event || window.event;
 	var trg1 = ev.target || ev.srcElement || document.body.parentNode;
@@ -167,7 +168,7 @@ if(!html_onkey.extensions) {
  *
  */
 
-if("html_onmouse" in window == false)
+if(!window["html_onmouse"])
 function html_onmouse(event) {
 	var ev = event || window.event || { type:'', target: document.body.parentNode };
     var trg1 = ev.target || ev.srcElement || document.body.parentNode;
@@ -1067,7 +1068,7 @@ function littlelisp_ide_onclick(event) {
 							editor.className += ' type_undefined';
 							break;
 						case 'string':
-							editor.value = obj[curr.innerHTML];
+							editor.value = JSON.stringify(obj[curr.innerHTML]);
 							editor.className += ' type_string';
 							break;
 						case 'function':
@@ -1106,7 +1107,6 @@ function littlelisp_ide_onclick(event) {
 		
 		// [click] .cmd_object_props_prev_state
 		// [dblclick] .c-object_props-btn_back
-		// TODO remove state_active
 		if(ev.type == 'click' && trg1.className.indexOf('cmd_object_props_prev_state') > -1
 		|| (ev.type == 'dblclick' && trg1.className.indexOf('c-object_props-btn_back') > -1)) {
 			var root = find_near('c-object_props');
@@ -1177,7 +1177,7 @@ function littlelisp_ide_onclick(event) {
 			switch(editor.className.match(/type_[a-z_A-Z0-9]+/)[0]) {
 				case 'type_string':
 // 					root.states[0].object[root.states[0].selected_key] = editor.value;
-					list_item.innerHTML = editor.value;
+					list_item.innerHTML = eval("("+editor.value+")");
 					break;
 				case 'type_undefined':
 					if(editor.value == 'undefined') {
@@ -1225,9 +1225,10 @@ function littlelisp_ide_onclick(event) {
 	// TODO target not my
 	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_save') > -1 || trg1p.className.indexOf('cmd_code_editor_save') > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
-		var win = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = win.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
-		var new_code = win.value || win.innerHTML;
+		var editor1 = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
+		var file_name = editor1.getAttribute("data-file_name") || document.getElementById("littlelisp_file_list_selector").value;
+		var file_name_offset = editor1.getAttribute("data-file_name-offset") || 0;
+		var new_code = editor1.value || editor1.innerHTML;
 		
 		// сохранение файла в главном окне
 		if(win_id == "littlelisp_ide_main_window") {
@@ -1247,23 +1248,46 @@ function littlelisp_ide_onclick(event) {
 			return;
 		}
 		
-		// сохранение в дебагере (если это текст всего файла)
-		if(win_id.match(/^littlelisp_debugger_/) && win.getAttribute('data-file_name')) {
+		// сохранение в дебагере (если это не функция/метод/фрагмент)
+		if(win_id.match(/^littlelisp_debugger_/) && editor1.getAttribute("data-file_name") && editor1.getAttribute("data-file_name-offset") == "0" && !editor1.getAttribute("data-func-name")) {
 			
-			html_onclick({type: "save_file", file_name: file_name, file_content: new_code, target: trg1});
+			// проверим dbg_readonly_code режим
+			if (document.getElementById(win_id).className.indexOf("dbg_readonly_code") > -1) {
+				alert("Can't save changes because you edit old version of source code.");
+				return;
+			}
 			
-			// TODO restart debugger?
+			html_onclick({
+				type: "save_file", 
+				file_name: file_name, 
+				file_content: new_code, 
+				target: trg1});
+			
+			// делаем restart
+			html_onclick({
+				type: "click", 
+				target: document.querySelector("#"+win_id+" .cmd_code_editor_restart")
+			});
+			
 			return;
 		}
 		
-		/* если сохранение в дебагере или в классброузере */
-		var func_name = (win.getAttribute("data-full-name")||"").replace(/^window\./, "");
+		/* если сохранение в дебагере или в классброузере фрагмента */
 		
-		// новый класс или метод?
-		if(!func_name) {
-			var func_name = new_code.match(/[ \t\n]*\([ \t\n]*def[^ \t\n]+[ \t\n]+([a-zA-Z_0-9.]+)/);
+		// это код функции/класса?
+		var func_name = (editor1.getAttribute("data-func-name")||"");
+		
+		// есть название функции/класса
+		if (!!func_name) {
+			// вытащим его изначальное имя
+			var func_name = new_code.match(/[ \t\n]*\([ \t\n]*def[^ \t\n]+[ \t\n]+([^ \t\n]+)/);
 			if (!func_name) return alert("Error! Can`t save! (unknown declaration)");
 			func_name = func_name[1];
+		}
+		
+		// либо произвольный фрагмент кода в дебагере
+		else {
+			return alert("Error! Disabled to save fragment of code!");
 		}
 		
 		// если не указано название файла, то запросим его ввести
@@ -1274,7 +1298,11 @@ function littlelisp_ide_onclick(event) {
 			
 			// если файл новый, то заменим содержимое и всё
 			if ("littlelisp_file_"+file_name in localStorage == false) {
-				html_onclick({type: "save_file", file_name: file_name, file_content: new_code, target: trg1});
+				html_onclick({
+					type: "save_file", 
+					file_name: file_name, 
+					file_content: new_code, 
+					target: trg1});
 				return;
 			}
 		}
@@ -1282,26 +1310,68 @@ function littlelisp_ide_onclick(event) {
 		// сформируем регулярку поиска старой записи в тексте
 		if (func_name.indexOf(".prototype.") > -1)
 			var regexp_func_decl = new RegExp("\\([ \t\n]*(defmeth[ \t\n]+"+func_name.replace(".prototype.",".")+"|defun[ \t\n]+"+func_name+")[ \t\n]+");
-		else if (new_code.match(/[ \t\n]*\([ \t\n]*defclass/))
+		else if (new_code.match(/[ \t\n]*\([ \t\n]*defclass[ \t\n]/))
 			var regexp_func_decl = new RegExp("\\([ \t\n]*defclass[ \t\n]+"+func_name+"[ \t\n]+");
 		else
-			var regexp_func_decl = new RegExp("\\([ \t\n]*(defmeth-static[ \t\n]+"+func_name+"|defun[ \t\n]+"+func_name+")[ \t\n]+");
+			var regexp_func_decl = new RegExp("\\([ \t\n]*(defmeth-static[ \t\n]+"+func_name+"|defun[ \t\n]+"+func_name+"|defclassmeth[ \t\n]+"+func_name+")[ \t\n]+");
 		
-		// возмём содержимое файла и найдём обьявление старого метода/класа
-		var file_content = localStorage.getItem('littlelisp_file_'+file_name);
-		var entry_start = file_content.search(regexp_func_decl);
-		if(entry_start < 0) return alert("Error! Declaration for "+func_name+" not found in file "+file_name);
+		// запрашиваем содержимое файла, чтоб его потом изменить
+		html_onclick({
+			type: "get_file", 
+			file_name: file_name, 
+			onload: function(file_content) {
 		
-		// поищем всё обьявление
-		var parse_result = littleLisp.parse(file_content, entry_start);
-		var start_len = parse_result[parse_result.length-1];
-		
-		// сгенерируем новое содержимое файла
-		var new_file_content = file_content.substring(0, start_len >> 16) + new_code + file_content.substring((start_len >> 16) + (start_len & 65535));
-		
-		html_onclick({type: "save_file", file_name: file_name, file_content: new_file_content, target: trg1});
-		
-		// TODO eval in class_browser?
+			// возмём содержимое файла и найдём обьявление старого метода/класа
+			var entry_start = file_content.search(regexp_func_decl);
+			if(entry_start < 0) return alert("Error! Declaration for "+func_name+" not found in file "+file_name);
+			
+			// поищем всё обьявление функции/метода
+			var parse_result = littleLisp.parse(file_content, entry_start);
+			var func_start = parse_result[parse_result.length-1] >> 16;
+			var func_end = func_start + (parse_result[parse_result.length-1] & 32767);
+			
+			// сохраним новое содержимое файла
+			html_onclick({type: "save_file", 
+				file_name: file_name, 
+				file_content: file_content.substring(0,func_start) + new_code + file_content.substring(func_end), 
+				target: trg1});
+			
+			// заполняем пробелами до начала функции, чтоб сохранить breakpoints
+			new_code = Array(func_start+1).join(' ') + new_code;
+			
+			// применим (выполним) изменения
+			if (win_id.match(/^littlelisp_class_browser_/)) {
+				littleLisp.eval(new_code, undefined, file_name);
+			}
+			
+			// в дебагере если это функция/метод, то нужно самому обновить её код
+			if (win_id.match(/^littlelisp_debugger_/)) {
+				var littlelisp_debugger = document.getElementById(win_id).littlelisp_debugger;
+				
+				// найдём контекст функции и саму её
+				for (var func_ctx = littlelisp_debugger.ctx; func_ctx; func_ctx = func_ctx.parent) {
+					if (func_ctx.type & 16) {
+						
+						// теперь обновим её параметры
+						var func_parsed = littleLisp.parse(new_code);
+						func_ctx.parent.result[0].__littlelisp.args_names = func_parsed[2];
+						func_ctx.parent.result[0].__littlelisp.body = func_parsed.slice(3);
+						func_ctx.parent.result[0].__littlelisp.source = new_code;
+						func_ctx.parent.result[0].__littlelisp.file = file_name;
+						
+						// в дебагере делаем restart
+						html_onclick({
+							type: "click", 
+							target: document.querySelector("#"+win_id+" .cmd_code_editor_restart")
+						});
+
+						return;
+					}
+				}
+				
+				alert("Function "+func_name+" not found! (no changes were applied)");
+			}
+		}});
 		
 		return;
 	}
@@ -1310,7 +1380,7 @@ function littlelisp_ide_onclick(event) {
 	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_run') > -1 || trg1p.className.indexOf('cmd_code_editor_run') > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var littlelisp_ide_main_window = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = littlelisp_ide_main_window.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
+		var file_name = littlelisp_ide_main_window.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
 		
 		if(littlelisp_ide_main_window.selectionStart == littlelisp_ide_main_window.selectionEnd) 
@@ -1344,21 +1414,7 @@ function littlelisp_ide_onclick(event) {
 				console.info(ex.stack);
 			}
 			
-			var button = document.createElement('BUTTON');
-			button.className = "cmd_code_editor_debugger";
-			button.innerHTML = "<i></i>Debugger #"+(littlelisp_ide_onclick.debugger_win_next_num++);
-			button.littlelisp_debugger = littlelisp_debugger;
-			button.ex = ex;
-		
-			if(document.getElementById("littlelisp_ide_panel")) {
-				document.getElementById("littlelisp_ide_panel").insertBefore(button, document.getElementById("littlelisp_ide_panel").firstElementChild);
-			}
-			else {
-				button.className = "c-panel-btn cmd_code_editor_debugger";
-				document.querySelector("#littlelisp_ide_main_window .c-toolbar").appendChild(button);
-			}
-		
-			button.click();
+			// littleLisp.debug(..., onerror_callback) сам откроет дебаггер
 		
 			return;
 		}
@@ -1376,7 +1432,7 @@ function littlelisp_ide_onclick(event) {
 	if(trg1.className.indexOf('cmd_code_editor_start_debug') > -1 || trg1p.className.indexOf('cmd_code_editor_start_debug') > -1) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var editor = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = editor.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
+		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
 		var src = editor.selectionStart == editor.selectionEnd 
 			? editor.value 
@@ -1457,9 +1513,36 @@ function littlelisp_ide_onclick(event) {
 	if(trg1.className.indexOf('cmd_code_editor_restart') > -1 || trg1p.className.indexOf('cmd_code_editor_restart') > -1) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var editor = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = editor.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
+		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
+		var file_name_offset = editor.getAttribute("data-file_name-offset")||"0";
 		var littlelisp_debugger = document.getElementById(win_id).littlelisp_debugger;
+		
+		// если мы в функции, то перезапустим функцию
+		for (var func_ctx = littlelisp_debugger.ctx; func_ctx; func_ctx = func_ctx.parent) {
+			if (func_ctx.type & 16) {
+				
+				var ctx = func_ctx.parent; // вызывающий список
+				
+				// сконструируем заново scope
+				var new_scope = {arguments: ctx.result.slice(1), thiz: ctx.this_for_elem1};
+				var arg_names = ctx.result[0].__littlelisp.args_names;
+				for(var i = 0; i < arg_names.length-1; i++)
+					new_scope[ctx.result[0].__littlelisp.source.substring(arg_names[i] >> 16, 
+						(arg_names[i] >> 16) + (arg_names[i] & 65535))] 
+						= ctx.result[i+1];
+				
+				// создадим стартовый контекст функции
+				littlelisp_debugger.ctx = new littleLisp.Context(new_scope, ctx, ctx.result[0].__littlelisp.body, 0, ctx.result[0].__littlelisp.source, ctx.result[0].__littlelisp.file, func_ctx.type);
+				
+				html_onclick({
+					type: "refresh_dbg_debugger",
+					target: document.getElementById(win_id)});
+				
+				return;
+			}
+			if (func_ctx.type & 32 /* type=nested_debugging */) break;
+		}
 		
 		// пересоздаём контекст заново на основе текущего текста/исходника
 		// TODO restart only function context
@@ -1514,34 +1597,54 @@ function littlelisp_ide_onclick(event) {
 	// cmd_code_editor_set_breakpoint
 	if(trg1.className.indexOf('cmd_code_editor_set_breakpoint') > -1 || trg1p.className.indexOf('cmd_code_editor_set_breakpoint') > -1) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
-		var littlelisp_ide_main_window = document.getElementById(win_id).querySelector('textarea.c-code_editor-textarea');
-		var select1 = document.getElementById('loacalStorage_files');
-		var file_name = littlelisp_ide_main_window.getAttribute('data-file_name') || select1.value;
+		var editor1 = document.getElementById(win_id).querySelector('textarea.c-code_editor-textarea');
+		var select1 = document.getElementById('littlelisp_file_list_selector');
+		var file_name = editor1.getAttribute('data-file_name') || select1.value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
+		var file_name_offset = parseInt(editor1.getAttribute("data-file_name-offset")||"0");
 		
+		// начнём список breakpoints для этого файла если небыло
 		if(file_name in littleLisp.breakpoints == false)
 			littleLisp.breakpoints[file_name] = {};
 		
+		// проверим на существующий breakpoint в месте курсора
+		var cursor_pos = editor1.selectionStart + file_name_offset;
+		for (var brk in	littleLisp.breakpoints[file_name]) {
+			var off = brk >> 16;
+			var len = brk & 32767;
+			
+			// если уже есть breakpoint в этом месте, то удалим и закончим на этом
+			if (cursor_pos >= off && (cursor_pos <= off+len)) {
+				delete littleLisp.breakpoints[file_name][brk];
+				
+				// включим подсветку breakpoints
+				editor1.selectionEnd = editor1.selectionStart;
+				html_onmouse({type:"mouseover", target:trg1});
+				
+				return;
+			}
+		}
+		
 		var atom_alphabet = 
 		"qwfpgjluyarstdhneiozxcvbkmQWFPGJLUYARSTDHNEIOZXCVBKM" + // Latin
-		"+*/%<>=!|&" + // arithmetic + logic
-		":@'`," + // symbol chars + quote + backquote
+		"-+*/%<>=!|&" + // arithmetic + logic
+		":#'`" + // symbol chars + quote + backquote
 		"яжфпгйлуыюшщарстдхнеиоэзчцвбкмъьЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЭЗЧЦВБКМЬЪ" + // Cyrillic
-		"_.?"+
+		"_.,?@"+
 		"1234567890"; // additional atom chars
 		
 		// TODO String?
 		// вычеслим начало токена
-		for(var tok_start = littlelisp_ide_main_window.selectionStart; tok_start >= 0; tok_start--)
-			if(atom_alphabet.indexOf(littlelisp_ide_main_window.value[tok_start]) > -1) continue;
+		for(var tok_start = editor1.selectionStart; tok_start >= 0; tok_start--)
+			if(atom_alphabet.indexOf(editor1.value[tok_start]) > -1) continue;
 			else { tok_start++; break; }
 			
 		// и конец токена
-		for(var tok_end = littlelisp_ide_main_window.selectionStart; tok_end < littlelisp_ide_main_window.value.length; tok_end++)
-			if(atom_alphabet.indexOf(littlelisp_ide_main_window.value[tok_end]) > -1) continue;
+		for(var tok_end = editor1.selectionStart; tok_end < editor1.value.length; tok_end++)
+			if(atom_alphabet.indexOf(editor1.value[tok_end]) > -1) continue;
 			else break;
 		
-		var token = (tok_start << 16) + (tok_end-tok_start);
+		var token = (tok_start + file_name_offset << 16) + (tok_end-tok_start);
 		
 		// если breapoint уже такой есть, то уберём его
 		if (token in littleLisp.breakpoints[file_name])
@@ -1552,7 +1655,7 @@ function littlelisp_ide_onclick(event) {
 			littleLisp.breakpoints[file_name][token] = true;
 		
 		// включим подсветку breakpoints
-		littlelisp_ide_main_window.selectionEnd = littlelisp_ide_main_window.selectionStart;
+		editor1.selectionEnd = editor1.selectionStart;
 		html_onmouse({type:"mouseover", target:trg1});
 	}
 
@@ -1561,7 +1664,7 @@ function littlelisp_ide_onclick(event) {
 	
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var editor = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = editor.getAttribute('data-file_name') || document.getElementById('loacalStorage_files').value;
+		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
 		
 		if(editor.selectionStart == editor.selectionEnd) 
@@ -1691,7 +1794,7 @@ function littlelisp_ide_onclick(event) {
 		var div = document.createElement("DIV");
 		div.innerHTML = '<fieldset id="{id}_title" style="position:absolute;left:0;top:0;height:35px;width:640px;" class="win-header g-draggable-parent" data-win-relocations="right: win() right"><div class="win-header-title g-draggable-parent2">Class Browser</div> <a class="win-minimize-btn" href="javascript:void(0)" title="Minimize (ESC)">_</a><a class="win-close-btn" href="javascript:void(0)" title="Close">x</a></fieldset>'+
 		'<fieldset id="{id}_class_hierarchy" style="position:absolute;top:60px;left:20px;width:300px;height:165px;-moz-box-sizing:border-box;box-sizing:border-box;" data-win-relocations="right:#{id}_splitter1 left; bottom: #{id}_splitter2 bottom;"><select style="width:100%;height:100%;background:white;-moz-box-sizing:border-box;box-sizing:border-box;" multiple="true">'+
-		'<optgroup id="{id}_js_classes" label="(unknown_file)"></optgroup></select></fieldset>'+
+		'<optgroup id="{id}_js_classes" label="(no file)"></optgroup></select></fieldset>'+
 		'<fieldset id="{id}_class_object_methods" style="position:absolute;top:60px;left:325px;width:300px;height:165px;-moz-box-sizing:border-box;box-sizing:border-box;" data-win-relocations="bottom: #{id}_splitter2 bottom; left: #{id}_splitter1 right; right: win() right;"><select style="width:100%;height:100%;background:white;-moz-box-sizing:border-box;box-sizing:border-box;" multiple="true">'+
 		'<optgroup id="{id}_class_methods" label="class (static methods)"></optgroup>'+
 		'<optgroup id="{id}_object_methods" label="object"></optgroup>'+
@@ -1710,7 +1813,7 @@ function littlelisp_ide_onclick(event) {
 		'<button class="c-toolbar-btn cmd_code_editor_new_method"><i class="ico-plus"></i>Method</button>'+
 		'</div></fieldset>'+
 		'<fieldset id="{id}_code" class="c-code_editor" style="position:absolute;top:255px;left:20px;width:600px;height:220px;" data-win-relocations="top:#{id}_splitter2 bottom; bottom: win() bottom; right:win() right;">'+
-		'<pre id="{id}_brkpnts" class="c-code_editor-bg" style="height:100%;width:100%;display:block;background:white;position:absolute;top:0;left:0;z-index:-1;color:transparent;"></pre>'+
+		'<pre id="{id}_brkpnts" class="c-code_editor-bg" style="height:100%;width:100%;display:block;background:transparent;position:absolute;top:0;left:0;z-index:-1;color:transparent;"></pre>'+
 		'<textarea id="{id}_code_editor" class="c-code_editor-textarea" style="width:100%;height:100%;background:transparent;"></textarea></fieldset>'+
 		'<fieldset id="{id}_splitter1" class="win-splitter type_vertical" style="position:absolute;left:320px;top:60px;height:165px;width:5px;" data-win-relocations="bottom: #{id}_splitter2 bottom; right: win() right; left: win() right;"></fieldset>'+
 		'<fieldset id="{id}_splitter2" class="win-splitter type_horizontal" style="position:absolute;left:20px;top:225px;height:5px;width:600px;" data-win-relocations="top: win() bottom; bottom: win() bottom; right: win() right;"></fieldset>';
@@ -1739,19 +1842,28 @@ function littlelisp_ide_onclick(event) {
 			type: 'winshow', 
 			target: document.getElementById(win.id)});
 		
-		// TODO firefox - no classes
 		var js_class_names = ["<option>Number</option>", "<option>String</option>", "<option>Boolean</option>", "<option>Symbol</option>", "<option>Date</option>", "<option>Array</option>", "<option>Object</option>", "<option>Function</option>"];
 		var lisp_class_names = {};
 		for(var name in window) {
 			if(window[name] && window[name].prototype && "QWFPGJLUYARSTDHNEIOZXCVBKMЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЬЗЧЦВБКМЁЪ".indexOf(name[0]) > -1) {
-				if(window[name].__file && window[name].__source) {
-					if(window[name].__file in lisp_class_names == false)
-						lisp_class_names[window[name].__file] = [];
-					lisp_class_names[window[name].__file].push("<option>"+name+"</option>");
+				if(window[name].__littlelisp) {
+					if(window[name].__littlelisp.file in lisp_class_names == false)
+						lisp_class_names[window[name].__littlelisp.file] = [];
+					lisp_class_names[window[name].__littlelisp.file].push("<option>"+name+"</option>");
 				}
 				else
 					js_class_names.push("<option>"+name+"</option>");
 			}
+		}
+		
+		// Gecko specific code
+		var window_props = Object.getOwnPropertyNames(window);
+		for (var i = 0; i < window_props.length; i++) {
+			var name = window_props[i];
+			if ((window[name]||{}).prototype 
+			&& "QWFPGJLUYARSTDHNEIOZXCVBKM".indexOf(name[0]) > -1 
+			&& js_class_names.indexOf("<option>"+name+"</option>") == -1)
+				js_class_names.push("<option>"+name+"</option>");
 		}
 
 		// загружаем классы не распределённые по файлам
@@ -1784,7 +1896,7 @@ function littlelisp_ide_onclick(event) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		
 		var editor = document.getElementById(win_id+"_code_editor");
-		editor.value = "(defclass NewClass \n\t:extends SuperClass\n\t:instvars \"var1 var2...\"\n\t:constructor :defmeth_name\n\t:classvars \"\"\n)\n)";
+		editor.value = "(defclass NewClass \n\t:extends SuperClass\n\t:instvars \"var1 var2...\"\n\t:constructor 'defmeth_name\n\t:classvars \"\"\n)";
 	}
 	
 	// cmd_code_editor_new_method
@@ -1792,7 +1904,7 @@ function littlelisp_ide_onclick(event) {
 		var dbg_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		
 		var editor = document.getElementById(dbg_id+"_code_editor");
-		editor.value = "(defmeth method_name (arg1 arg1...) (\n\t;; method body hear\n))";
+		editor.value = "(defmeth method_name (arg1 arg1...) \n\t;; method body hear\n)";
 	}
 
 	// #littleLisp_class_browser_NNN_js/lisp_classes
@@ -1804,12 +1916,12 @@ function littlelisp_ide_onclick(event) {
 		var list = Object.getOwnPropertyNames(clazz.prototype);
 		for(var i = 0; i < list.length; i++)
 		if(clazz.prototype[list[i]] instanceof Function) {
-			methods.push("<option data-full-name=\"window."+trg1.innerHTML+".prototype."+list[i]+"\">"+list[i]+"</option>");
+			methods.push("<option data-func-name=\"window."+trg1.innerHTML+".prototype."+list[i]+"\">"+list[i]+"</option>");
 		}
 		if(clazz.prototype.__proto__)
 		for(var meth_name in clazz.prototype.__proto__)
 		if(clazz.prototype.__proto__[meth_name] instanceof Function) {
-			methods.push("<option data-full-name=\"window."+trg1.innerHTML+".prototype."+meth_name+"\">"+meth_name+"</option>");
+			methods.push("<option data-func-name=\"window."+trg1.innerHTML+".prototype."+meth_name+"\">"+meth_name+"</option>");
 		}
 		methods.sort();
 		document.getElementById(win_id+"_object_methods").innerHTML = methods.join("");
@@ -1818,14 +1930,14 @@ function littlelisp_ide_onclick(event) {
 		var list = Object.getOwnPropertyNames(clazz);
 		for(var i = 0; i < list.length; i++)
 		if(clazz[list[i]] instanceof Function) {
-			methods.push("<option data-full-name=\"window."+trg1.innerHTML+"."+list[i]+"\">"+list[i]+"</option>");
+			methods.push("<option data-func-name=\"window."+trg1.innerHTML+"."+list[i]+"\">"+list[i]+"</option>");
 		}
 		methods.sort();
 		document.getElementById(win_id+"_class_methods").innerHTML = methods.join("");
 		
 		// загрузим описание класса в редактор кода
 		var code_editor = document.getElementById(win_id+"_code_editor");
-		code_editor.setAttribute("data-full-name", "window."+trg1.innerHTML);
+		code_editor.setAttribute("data-func-name", "window."+trg1.innerHTML);
 		if ("source" in clazz)
 			code_editor.value = clazz.source;
 		else
@@ -1838,54 +1950,59 @@ function littlelisp_ide_onclick(event) {
 	
 	// #littleLisp_class_browser_NNN_class/object_methods
 	if(trg1.nodeName == 'OPTION' && (trg1p.id||"").match(/_(class|object)_methods/)) {
-		var full_name = trg1.getAttribute("data-full-name");
+		var full_name = trg1.getAttribute("data-func-name");
 		var func = eval("("+full_name+")");
 		
 		// загрузим исходный код метода в редактор кода
 		var id = trg1p.id.replace(/_(class|object)_methods/, "");
 		var code_editor = document.getElementById(id+"_code_editor");
-		if ("__args_names" in func == false) {
+		if ("__littlelisp" in func == false) {
 			code_editor.value = func.toString();
 			code_editor.setAttribute("data-source-offset", 0);
-			code_editor.setAttribute("data-full-name", full_name);
+			code_editor.setAttribute("data-func-name", full_name);
 			code_editor.removeAttribute("data-file_name");
 		} 
 		else {
 		
 			// ищем открывающую скобку всего определения метода
-			for(var start = (func.__args_names[func.__args_names.length-1] >> 16)-1; start >= 0; start--)
-				if(func.__source[start] == '(') break;
+			for(var start = (func.__littlelisp.args_names[func.__littlelisp.args_names.length-1] >> 16)-1; start >= 0; start--)
+				if(func.__littlelisp.source[start] == '(') break;
 				
 			// ...и закрывающую
-			for(var end = (func.__body[func.__body.length-1] >> 16) + (func.__body[func.__body.length-1] & 65535) + 1; end > func.__source.length; end++)
-				if(func.__source[end] == ')') break;
+			for(var end = (func.__littlelisp.body[func.__littlelisp.body.length-1] >> 16) + (func.__littlelisp.body[func.__littlelisp.body.length-1] & 65535) + 1; end > func.__littlelisp.source.length; end++)
+				if(func.__littlelisp.source[end] == ')') break;
 			
 			// вырежем и загрузим фрагмент кода-определения метода
-			code_editor.value = func.__source.substring(start, end);
+			code_editor.value = func.__littlelisp.source.substring(start, end);
 			code_editor.setAttribute("data-source-offset", start);
-			code_editor.setAttribute("data-full-name", full_name);
-			code_editor.getAttribute("data-file_name", func.__file);
+			code_editor.setAttribute("data-func-name", full_name);
+			code_editor.getAttribute("data-file_name", func.__littlelisp.file);
 		}
 			
 	}
 
-	// #loacalStorage_files
-	if(trg1.id == 'loacalStorage_files') {
-
-		var littlelisp_ide_main_window = document.getElementById('littlelisp_ide_main_window_src');
+	// #littlelisp_file_list_selector
+	if(trg1.id == 'littlelisp_file_list_selector') {
+		var editor = document.getElementById('littlelisp_ide_main_window_src');
 
 		if(trg1.value == '(new...)') {
 			var name = prompt('File name:', '');
 			if(!!name) {
-				localStorage.setItem('littlelisp_file_'+name, '');
+				html_onclick({
+					type: "save_file", 
+					file_name: name, 
+					file_content: ";; "+name
+				});
 				(trg1.insertBefore(document.createElement('OPTION'), trg1.lastChild)).innerHTML = name;
 				trg1.selectedIndex = trg1.options.length - 2;
-				littlelisp_ide_main_window.value = "";
-				littlelisp_ide_main_window.focus();
+				editor.value = ";; "+name;
+				editor.focus();
 			}
 		}
 		else {
-			littlelisp_ide_main_window.value = localStorage.getItem('littlelisp_file_'+trg1.value);
+			html_onclick({type: "get_file", file_name: trg1.value, onload: function(value) {
+				editor.value = value;
+			}});
 		}
 		
 		// запомним, что переключились на файл
@@ -1981,6 +2098,29 @@ function littlelisp_ide_onclick(event) {
 	// [restore_main_window_content]
 	if(ev.type == "restore_main_window_content" /* || ev.type == "load" && ev.target == document */) {
 
+		// если есть связь с сервером, но нет пароля, запросим тогда и авторизуемся
+		if (document.cookie.indexOf("littlelisp-save-url=") > -1 && document.cookie.indexOf("littlelisp-password") < 0) {
+			var password = prompt("Password:", "abc123");
+			if (password) {
+				var save_url = document.cookie.match(/littlelisp-save-url=([^;]+)/);
+				var xhr = new XMLHttpRequest();
+				xhr.open("POST", decodeURIComponent(save_url[1])+"?action=auth", true); 
+				xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+				xhr.onreadystatechange = function(){ 
+					if(xhr.readyState != 4 || xhr.responseText == "") return;
+					console.log(xhr.responseText);
+					
+					if(xhr.responseText != "ok") alert(xhr.responseText);
+					else document.cookie += "; littlelisp-password="+encodeURIComponent(password);
+						
+					html_onclick({type: "restore_main_window_content"});
+				};
+				xhr.send("password="+encodeURIComponent(password));
+				
+				return;
+			}
+		}
+		
 		// считаем config
 		try {
 			var config = localStorage["littlelisp_config"];
@@ -2000,25 +2140,18 @@ function littlelisp_ide_onclick(event) {
 		}
 		
 		// загрузим список сохранёных файлов
-		var select1 = document.getElementById("loacalStorage_files");
-		for(var f in localStorage) if(f.match(/^littlelisp_file_/)) {
-			(select1.appendChild(document.createElement('OPTION'))).innerHTML = f.replace(/^littlelisp_file_/, '');
-		}
-		(select1.appendChild(document.createElement('OPTION'))).innerHTML = '(new...)';
+		html_onclick({type: "list_files", selected_file: config.last_file});
 		
 		// загрузим в редактор последний редактированный файл
-		var last_file_content = localStorage["littlelisp_file_"+config.last_file];
-		if(typeof last_file_content == "undefined")
-			document.getElementById('littlelisp_ide_main_window_src').value = "";
-		else
-			document.getElementById('littlelisp_ide_main_window_src').value = last_file_content;
-		document.getElementById('littlelisp_ide_main_window_src').focus();
-			
-		// выделим редактируемый файл если загрузили успешно
-		if(typeof last_file_content != "undefined")
-		for(var i = select1.options.length-1; i >= 0; i--) {
-			select1.options[i].selected = select1.options[i].innerHTML == config.last_file;
-		}
+		html_onclick({type: "get_file", file_name: config.last_file, onload: function(value){
+			var last_file_content = value;
+			if(typeof last_file_content == "undefined")
+				document.getElementById('littlelisp_ide_main_window_src').value = "";
+			else
+				document.getElementById('littlelisp_ide_main_window_src').value = last_file_content;
+			document.getElementById('littlelisp_ide_main_window_src').focus();
+		}});
+		
 	}
 		
 	// [refresh_dbg_debugger]
@@ -2056,7 +2189,7 @@ function littlelisp_ide_onclick(event) {
 			}
 		}
 		
-		// загрузим контекст в watch
+		// загрузим контекст/scope в watch
 		html_onclick({
 			type: 'load', 
 			target: document.getElementById(dbg_id+'_watch').firstElementChild,
@@ -2067,21 +2200,51 @@ function littlelisp_ide_onclick(event) {
 		
 		var editor = document.getElementById(dbg_id+'_code_editor');
 		
-		// загрузим исходный код нужного файла если нужно
-		if(editor.getAttribute('data-file_name') != selected_ctx.file) {
-			editor.value = selected_ctx.source;
-			editor.setAttribute('data-file_name', selected_ctx.file);
+		// найдём контекст функции если есть
+		for (func_ctx = selected_ctx; func_ctx; func_ctx = func_ctx.parent) {
+			if (func_ctx.type & 16) { // загрузим только тело функции
+				var off = func_ctx.input[func_ctx.input.length-1] >> 16;
+				var len = func_ctx.input[func_ctx.input.length-1] & 32767;
+				editor.value = func_ctx.source.substring(off, off+len);
+				editor.setAttribute("data-file_name", func_ctx.file);
+				editor.setAttribute("data-file_name-offset", off);
+				editor.setAttribute("data-func-name", 
+					editor.value.match(/\([ \t\n]*def[-a-z]+[ \t\n]+([^ \t\n]+)/)[1]);
+				document.getElementById(dbg_id).className = document.getElementById(dbg_id).className.replace(/ *dbg_readonly_code/, ""); // отчистим атрибут только для чтения
+				break;
+			}
+			else if (func_ctx.type & 32) 
+				break;
 		}
+		
+		// либо загрузим исходный код нужного файла если нужно
+		if (!func_ctx || (func_ctx.type & 16) == 0) {
+			if(editor.getAttribute("data-file_name") != selected_ctx.file || editor.getAttribute("data-func-name") != "") {
+				editor.value = selected_ctx.source;
+				editor.setAttribute("data-file_name", selected_ctx.file);
+				editor.setAttribute("data-file_name-offset", 0);
+				editor.removeAttribute("data-func-name");
+				
+				// если коде не соответствуюет сохранёному то запретим изменения
+				if (localStorage.getItem("littlelisp_file_"+selected_ctx.file) != selected_ctx.source) {
+					document.getElementById(dbg_id).className = document.getElementById(dbg_id).className.replace(/ *dbg_readonly_code/, "") + " dbg_readonly_code";
+				}
+				else
+					document.getElementById(dbg_id).className = document.getElementById(dbg_id).className.replace(/ *dbg_readonly_code/, ""); // отчистим атрибут только для чтения
+			}
+		}
+		
+		var off = parseInt(editor.getAttribute("data-file_name-offset"));
 				
 		// выделим нужный фрагмент
 		editor.setSelectionRange(
-			selected_ctx.range(1),
-			selected_ctx.range(1));
+			selected_ctx.range(1) - off,
+			selected_ctx.range(1) - off);
 		editor.blur();
 		editor.focus();
 		editor.setSelectionRange(
-			selected_ctx.range(1),
-			selected_ctx.range(2));
+			selected_ctx.range(1) - off,
+			selected_ctx.range(2) - off);
 	}
 
 	// [show_hide_littlelisp_js_ide]
@@ -2102,9 +2265,9 @@ function littlelisp_ide_onclick(event) {
 			var div = document.createElement("DIV");
 			div.innerHTML = '<div id="littlelisp_ide_main_window" class="c-code_editor" style="width:100%;height:100%;position:fixed;top:0;left:0;right:0;bottom:0;display:none;background:white">'+
 			'<pre id="littlelisp_ide_main_window_brkpnts" class="c-code_editor-bg" style="height:100%;width:100%;border-top:26px solid transparent;display:block;background:white;position:absolute;top:0;left:0;color:transparent;"></pre>'+
-		'<textarea id="littlelisp_ide_main_window_src" class="c-code_editor-textarea" contenteditable="true" style="height:100%;width:100%;border-top:26px solid transparent;display:block;background:transparent;position:relative" data-win-id="littlelisp_ide_main_window">'+(window['default_lisp_code']||"")+'</textarea>'+
+		'<textarea id="littlelisp_ide_main_window_src" class="c-code_editor-textarea" contenteditable="true" style="height:100%;width:100%;border-top:26px solid transparent;display:block;background:transparent;position:relative" data-win-id="littlelisp_ide_main_window" data-file_name-offset="0">'+(window['default_lisp_code']||"")+'</textarea>'+
 		'<div class="c-toolbar" style="position:absolute;top:0;width:100%;" data-win-id="littlelisp_ide_main_window">'+
-		'<select id="loacalStorage_files" class="c-toolbar-select"></select>'+
+		'<select id="littlelisp_file_list_selector" class="c-toolbar-select" onchange="return html_onclick(event)"></select>'+
 		'<button class="c-toolbar-btn cmd_code_editor_save" title="Save to LocalStorage (Alt+S)"><i class="ico-save"></i>Save</button>'+
 		'<span class="c-toolbar-divider"></span>'+
 		'<button class="c-toolbar-btn cmd_code_editor_run" title="Execute selected fragment or all text (Alt+R)"><i class="ico-play"></i>RunIt</button>'+
@@ -2129,12 +2292,18 @@ function littlelisp_ide_onclick(event) {
 		else {
 			
 			if(ide_win.style.display == "block") {
+				// сохроним прокрутку в редакторе
+				document.getElementById("littlelisp_ide_main_window_src").setAttribute("data-scrollTop", document.getElementById("littlelisp_ide_main_window_src").scrollTop);
+				
 				ide_win.style.display = "none";
 				(document.getElementById("littlelisp_ide_main_window_show")||{}).innerHTML = "Show IDE";
 			}
 			else {
 				ide_win.style.display = "block";
 				(document.getElementById("littlelisp_ide_main_window_show")||{}).innerHTML = "Hide IDE";
+				
+				// востановим прокрутку в редакторе
+				document.getElementById("littlelisp_ide_main_window_src").scrollTop = parseInt(document.getElementById("littlelisp_ide_main_window_src").getAttribute("data-scrollTop"));
 			}
 		}
 	}
@@ -2148,12 +2317,55 @@ function littlelisp_ide_onclick(event) {
 		(document.getElementById("littlelisp_ide_main_window_show")||{}).innerHTML = "Show IDE";
 	}
 
+	// [list_files]
+	if(ev.type == "list_files") {
+		
+		// загрузим сначало файлы из localStorage броузера
+		var select1 = document.getElementById("littlelisp_file_list_selector");
+		for(var f in localStorage) if(f.match(/^littlelisp_file_/)) {
+			(select1.appendChild(document.createElement('OPTION'))).innerHTML = f.replace(/^littlelisp_file_/, '');
+			
+			if (f == "littlelisp_file_"+ev.selected_file)
+				select1.lastElementChild.selected = true;
+		}
+		(select1.appendChild(document.createElement('OPTION'))).innerHTML = '(new...)';
+
+		// запросим с сервера список файлов, если есть возможность
+		if (document.cookie.indexOf("littlelisp-save-url=") > -1) {
+			var save_url = document.cookie.match(/littlelisp-save-url=([^;]+)/);
+			var xhr = new XMLHttpRequest();
+			xhr.open("GET", decodeURIComponent(save_url[1])+"?action=list", true); 
+			xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+// 			xhr.setRequestHeader("Origin", document.location.host);
+			xhr.onreadystatechange = function(){ 
+				if(xhr.readyState != 4 || xhr.responseText == '') return;
+// 				console.log(xhr.responseText);
+				if (xhr.responseText.match(/^Error!/)) 
+					return alert(xhr.responseText);
+				
+				// удалим (new...)
+				select1.removeChild(select1.lastChild);
+				
+				var list = xhr.responseText.split("\n");
+				for (var i in list) if(list[i].match(/\.lisp$/)) {
+					select1.appendChild(document.createElement('OPTION')).innerHTML = list[i];
+					if (list[i] == ev.selected_file)
+						select1.lastElementChild.selected = true;
+				}
+				(select1.appendChild(document.createElement('OPTION'))).innerHTML = '(new...)';
+			};
+			xhr.send("");
+		}
+		
+		return;
+	}
+	
 	// [save_file]
 	if(ev.type == "save_file") {
 		// дадим знать, что идёт сохранение
 		var trg = trg1p.className.indexOf('cmd_code_editor_save') > -1 ? trg1p : trg1;
 		trg.style.opacity = 0.4;
-		setTimeout(function(){ trg.style.opacity = 1; }, 500);
+		setTimeout(function(){ trg.style.opacity = null; }, 500);
 		
 		if (!ev.file_content) {
 			alert("New content is empty! (canceled saving)");
@@ -2161,15 +2373,75 @@ function littlelisp_ide_onclick(event) {
 			return;
 		}
 		
-		// сохраним
-		localStorage.setItem("littlelisp_file_"+ev.file_name, ev.file_content);
+		// сохраним на сервер
+		if (ev.file_name.match(/\.lisp$/)) {
+			if (document.cookie.indexOf("littlelisp-save-url=") < 0) 
+				return alert("Can't save file to server! (not found littlelisp-save-url cookie)");
+			
+			try {
+				var file_content_parsed = littleLisp.parse(ev.file_content);
+			} 
+			catch(ex) {
+				alert(ex.stack);
+				return;
+			}
+			
+			var save_url = document.cookie.match(/littlelisp-save-url=([^;]+)/);
+			var data = ["lisp=",
+				encodeURIComponent(ev.file_content),
+				"&lisp_js=littleLisp.interpret(",
+				encodeURIComponent(JSON.stringify(file_content_parsed)),
+				"%2C%20window%7C%7Cglobal%2C%20",
+				encodeURIComponent(JSON.stringify(ev.file_content)),
+				"%2C%20",
+				encodeURIComponent(JSON.stringify(ev.file_name)),
+				")%3B"
+			];
+			var xhr = new XMLHttpRequest();
+			xhr.open("POST", decodeURIComponent(save_url[1])+"?action=save&file="+encodeURIComponent(ev.file_name), true); 
+			xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+// 			xhr.setRequestHeader("Origin", document.location.host);
+			xhr.onreadystatechange = function(){ 
+				if(xhr.readyState != 4 || xhr.responseText == '') return;
+				console.log(xhr.responseText);
+				if (!xhr.responseText.match(/^ok/)) alert(xhr.responseText);
+			};
+			xhr.send(data.join(''));
+		}
+		
+		// либо сохраним в броузере
+		else
+			localStorage.setItem("littlelisp_file_"+ev.file_name, ev.file_content);
 		
 		// также обновим контент в главном окне если открыто
-		if (document.getElementById('loacalStorage_files').value == ev.file_name) {
+		if (document.getElementById('littlelisp_file_list_selector').value == ev.file_name) {
 			var editor1 = document.getElementById("littlelisp_ide_main_window").querySelector(".c-code_editor-textarea");
 			if (editor1.value != ev.file_content)
 				editor1.value = ev.file_content;
 		}
+	}
+	
+	// [get_file]
+	if(ev.type == "get_file") {
+		if (ev.file_name.match(/\.lisp$/)) {
+			if (document.cookie.indexOf("littlelisp-save-url=") < 0) 
+				return alert("Can't get "+ev.file_name+" from server! (not found littlelisp-save-url cookie)");
+			
+			var onload_callback = ev.onload;
+			var save_url = document.cookie.match(/littlelisp-save-url=([^;]+)/);
+			var xhr = new XMLHttpRequest();
+			xhr.open("GET", decodeURIComponent(save_url[1])+"?action=get&file="+encodeURIComponent(ev.file_name), true); 
+			xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+// 			xhr.setRequestHeader("Origin", document.location.host);
+			xhr.onreadystatechange = function(){ 
+				if(xhr.readyState != 4 || xhr.responseText == '') return;
+// 				console.log(xhr.responseText);
+				onload_callback(xhr.responseText);
+			};
+			xhr.send("");
+		} 
+		else
+			ev.onload(localStorage.getItem('littlelisp_file_'+ev.file_name));
 	}
 	
 	// [debugger.*]
@@ -2223,11 +2495,20 @@ function littlelisp_ide_onkey(event) {
 	if(ev.keyCode == 9 && ev.type == "keydown") {
 // 				document.execCommand("styleWithCSS", true, null);
 	
-		if(trg1.nodeName = 'TEXTAREA') {
-			var textEvent = document.createEvent('TextEvent');
-			textEvent.initTextEvent('textInput', true, true, null, "\t");
-			trg1.dispatchEvent(textEvent);
+		if(trg1.nodeName = "TEXTAREA") {
+			var textEvent = document.createEvent("TextEvent");
+			if (textEvent.initTextEvent) {
+				textEvent.initTextEvent("textInput", true, true, null, "\t");
+				trg1.dispatchEvent(textEvent);
+			} 
 			
+			// для старых броузеров по старому
+			else {
+				var cursor_pos = trg1.selectionStart;
+				trg1.value = trg1.value.substring(0, trg1.selectionStart) + '\t' + trg1.value.substring(trg1.selectionStart);
+				trg1.selectionStart = trg1.selectionEnd = cursor_pos + 1;
+			}
+				
 			if(ev.stopPropagation) ev.stopPropagation();
 			else ev.cancelBubble = true;
 		
@@ -2312,12 +2593,13 @@ function littlelisp_ide_onmouse(event) {
 	var trg1p = (html_onmouse||{}).trg1p || trg1.parentNode;
 	var find_near = (html_onmouse||{}).find_near || function(){ alert("Error! html_onmouse.find_near not found!"); };
 
-	// show breapoints background
+	// show breakpoints background
 	if((ev.type == "mouseover" || ev.type == "mouseout" || ev.type == "mouseout-window") && (trg1.className.indexOf("c-toolbar-btn cmd_code_editor_set_breakpoint") > -1 || trg1p.className.indexOf("c-toolbar-btn cmd_code_editor_set_breakpoint") > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
 		var textarea = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = textarea.getAttribute("data-file_name") || document.getElementById("loacalStorage_files").value;
+		var file_name = textarea.getAttribute("data-file_name") || document.getElementById("littlelisp_file_list_selector").value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
+		var file_name_offset = parseInt(textarea.getAttribute("data-file_name-offset") || "0")
 		
 		// скроем подложку с breakpoints
 		if(ev.type == "mouseout") {
@@ -2334,7 +2616,7 @@ function littlelisp_ide_onmouse(event) {
 			
 			var result = textarea.value;
 			for(var i = points.length-1; i >= 0; i--) {
-				var off = points[i]*1 >> 16;
+				var off = (points[i]*1 >> 16) - file_name_offset;
 				var len = points[i]*1 & 65535;
 				result = result.substring(0, off) + "<strike style=\"background:red\">" + result.substring(off, off+len) + "</strike>" + result.substring(off+len);
 			}
@@ -2357,6 +2639,17 @@ function littlelisp_ide_onmouse(event) {
 				buttons[i].parentNode.removeChild(buttons[i]);
 				break;
 			}
+			return;
+		}
+		var win_id = (trg1.id||"").match(/^littlelisp_class_browser[_0-9]*$/);
+		if (win_id) {
+			var buttons = document.querySelectorAll("button.cmd_code_editor_show_class_browser");
+			for (var i in buttons)
+			if (buttons[i].innerHTML.match(/Class Browser/)) {
+				buttons[i].parentNode.removeChild(buttons[i]);
+				break;
+			}
+			return;
 		}
 	}
 	
@@ -2458,5 +2751,7 @@ littlelisp_ide_onclick.css_styles =
 
 ".c-code_editor-bg, .c-code_editor-textarea { font: 13px/16px monospace; padding: 2px; margin:0; border: 1px solid silver; -moz-box-sizing:border-box; box-sizing: border-box; overflow: auto; white-space: pre-wrap; word-wrap: break-word; }"+
 
+".dbg_readonly_code .c-code_editor { background-color: #ffa; }"+
+".dbg_readonly_code .cmd_code_editor_save { opacity: 0.3; }";
 "";
 

@@ -7,8 +7,10 @@ var atom_alphabet =
 "яжфпгйлуыюшщарстдхнеиоэзчцвбкмъьЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЭЗЧЦВБКМЬЪёЁ" + // Cyrillic
 "_.,?@"; // additional atom chars
 
+var gensym_counter = 1; // for macros
+
 var Context = function(scope, parent, input, index, source, file, ctx_type) {
-	this.type = ctx_type || 0; // undef/0 - list, 2 - catch, 4 - while,for,switch, 16 - function, 32 - nested debugging
+	this.type = ctx_type || 0; // undef/0 - list, 2 - catch, 4 - while,for,switch, 16 - function, 32 - nested debugging, 64 - macros
 	this.parent = parent;
 	this.scope = scope;
 	this.input = input;
@@ -55,18 +57,18 @@ Context.prototype.range = function(type, point) {
 		
 		// (...)
 		if (this.indx == this.input.length-1) {
-			return (this.input[this.input.length-1] >> 16) + (this.input[Math.min(this.indx, this.input.length-1)] & 65535);
+			return (this.input[this.input.length-1] >> 16) + (this.input[Math.min(this.indx, this.input.length-1)] & 32767);
 		}
 		
 		// list
 		if (this.input[this.indx] instanceof Array)
 			return (this.input[this.indx][this.input[this.indx].length-1] >> 16) 
-				+ (this.input[this.indx][this.input[this.indx].length-1] & 65535);
+				+ (this.input[this.indx][this.input[this.indx].length-1] & 32767);
 		
 		// atom/string/number
 		if (this.input[this.indx])
 			return (this.input[Math.min(this.indx, this.input.length-1)] >> 16) 
-				+ (this.input[Math.min(this.indx, this.input.length-1)] & 65535);
+				+ (this.input[Math.min(this.indx, this.input.length-1)] & 32767);
 				
 		// выполнение кода завершено!
 		if (this.indx == this.input.length)
@@ -84,68 +86,42 @@ Context.prototype.set = function(identifier, value, is_unset_mode) {
 	
 	// identifier only
 	if (prefix_len < 0) {
+		identifier = identifier == "this" ? "thiz" : identifier;
 		if (is_unset_mode)
-			delete this.scope[identifier == "this" ? "thiz" : identifier];
-		else
-			this.scope[identifier == "this" ? "thiz" : identifier] = value;
+			delete this.scope[identifier];
+		else 
+			this.scope[identifier] = value;
+		
+		return value;
 	}
 	
 	// identifier.field_name1.field_name2...
-	else {
-		
-		var prefix = identifier.substring(0, prefix_len);
-		
-		// base object
-		for (var curr_ctx = this; curr_ctx; curr_ctx = curr_ctx.parent) {
-			if (prefix in curr_ctx.scope) {
-				var obj = curr_ctx.scope[prefix];
-				break;
-			}
-			if (prefix == "this" && "thiz" in curr_ctx.scope) {
-				var obj = curr_ctx.scope.thiz;
-				break;
-			}
-			if ( ! curr_ctx.parent ) {
-				var obj = window[prefix]; // на худший случай
-				break;
-			}
+	var prefix = identifier.substring(0, prefix_len);
+	
+	// base object
+	for (var curr_ctx = this; curr_ctx; curr_ctx = curr_ctx.parent) {
+		if (prefix in curr_ctx.scope) {
+			var obj = curr_ctx.scope[prefix];
+			break;
 		}
-		
-		// если не существует объект сообщим
-		if (obj === undefined || obj === null)
-			throw "Error! "+prefix+" is "+(obj == null ? "null" : typeof obj)+"!";
-		
-		// field chain...
-		while (obj && identifier.indexOf(".", prefix_len+1) > -1) {
-			prefix = identifier.substring(prefix_len+1, identifier.indexOf(".", prefix_len+1));
-			prefix_len += prefix.length + 1;
-			
-			// .@fieldname
-			if (prefix[0] == '@')
-			for (var cnt = prefix[0] == '@' ? prefix[1] == '@' ? 2 : 1 : 0, 
-				prefix = prefix.substring(cnt); 
-				cnt > 0; cnt--) {
-				
-				var found = false;
-				for (var curr_ctx = this; curr_ctx; curr_ctx = curr_ctx.parent) {
-					if (prefix in curr_ctx.scope) {
-						prefix = curr_ctx.scope[prefix];
-						found = true;
-						break;
-					}
-				}
-				if ( ! found )
-					throw "Not found value for \"@"+prefix+"\"!";
-			}
-			
-			if (prefix in obj)
-				obj = obj[prefix];
-			else if (identifier.indexOf(".", prefix_len) < 0)
-				throw "Error! No " + identifier.substring(0, prefix_len) + " found!";
+		if (prefix == "this" && "thiz" in curr_ctx.scope) {
+			var obj = curr_ctx.scope.thiz;
+			break;
 		}
-		
-		// end field_name
-		prefix = identifier.substring(prefix_len+1);
+		if ( ! curr_ctx.parent ) {
+			var obj = window[prefix]; // на худший случай
+			break;
+		}
+	}
+	
+	// если не существует объект сообщим
+	if (obj === undefined || obj === null)
+		throw "Error! "+prefix+" is "+(obj == null ? "null" : typeof obj)+"!";
+	
+	// field chain...
+	while (obj && identifier.indexOf(".", prefix_len+1) > -1) {
+		prefix = identifier.substring(prefix_len+1, identifier.indexOf(".", prefix_len+1));
+		prefix_len += prefix.length + 1;
 		
 		// .@fieldname
 		if (prefix[0] == '@')
@@ -165,12 +141,39 @@ Context.prototype.set = function(identifier, value, is_unset_mode) {
 				throw "Not found value for \"@"+prefix+"\"!";
 		}
 		
-		if (is_unset_mode)
-			delete obj[prefix];
-		else
-			obj[prefix] = value;
+		if (prefix in obj)
+			obj = obj[prefix];
+		else if (identifier.indexOf(".", prefix_len) < 0)
+			throw "Error! No " + identifier.substring(0, prefix_len) + " found!";
 	}
 	
+	// end field_name
+	prefix = identifier.substring(prefix_len+1);
+	
+	// .@fieldname
+	if (prefix[0] == '@')
+	for (var cnt = prefix[0] == '@' ? prefix[1] == '@' ? 2 : 1 : 0, 
+		prefix = prefix.substring(cnt); 
+		cnt > 0; cnt--) {
+		
+		var found = false;
+		for (var curr_ctx = this; curr_ctx; curr_ctx = curr_ctx.parent) {
+			if (prefix in curr_ctx.scope) {
+				prefix = curr_ctx.scope[prefix];
+				found = true;
+				break;
+			}
+		}
+		if ( ! found )
+			throw "Not found value for \"@"+prefix+"\"!";
+	}
+	
+	// просто попросили удалить
+	if (is_unset_mode)
+		delete obj[prefix];
+	else
+		obj[prefix] = value;
+		
 	return value;
 };
 
@@ -197,16 +200,17 @@ Context.prototype.interpret_elem = function() {
 	} 
 	
 	var char_code = this.source.charCodeAt(this.input[this.indx] >> 16);
-			
-	// symbol (quoted atom)
-	if (char_code == 39 /* ' */ || char_code == 96 /* ` */ || char_code == 58 /* : */ || char_code == 35 /* # */) {
-		this.result[this.indx] = this.source.substring((this.input[this.indx] >> 16) +1, (this.input[this.indx] >> 16) + (this.input[this.indx] & 65535));
+	
+	// atom (quoted atom)
+	if (char_code == 39 /* ' */ || char_code == 96 /* ` */ || char_code == 58 /* : */ || char_code == 35 /* # */ || char_code == 38 /* & */) {
+		this.result[this.indx] = new String(this.source.substring((this.input[this.indx] >> 16) +1, (this.input[this.indx] >> 16) + (this.input[this.indx] & 32767)));
+		this.result[this.indx].atom_prefix = String.fromCharCode(char_code);
 		return true;
 	}
 	
 	// string
 	else if (char_code == 34 /* " */) {
-		var text = this.source.substring((this.input[this.indx] >> 16), (this.input[this.indx] >> 16) + (this.input[this.indx] & 65535));
+		var text = this.source.substring((this.input[this.indx] >> 16), (this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
 		try { this.result[this.indx] = JSON.parse(text); } 
 		catch(ex) { this.result[this.indx] = JSON.parse(text.replace(/\n/g, "\\n")); }
 		return true;
@@ -214,8 +218,18 @@ Context.prototype.interpret_elem = function() {
 	
 	// number
 	else if (char_code > 47 && char_code < 58 /* 0-9 */ 
-	|| (char_code == 45 && (this.input[this.indx] & 65535) > 1 && "0123456789".indexOf(this.source[(this.input[this.indx] >> 16)+1]) > -1)) {
-		this.result[this.indx] = parseInt(this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + (this.input[this.indx] & 65535)));
+	|| (char_code == 45 && (this.input[this.indx] & 32767) && "0123456789".indexOf(this.source[(this.input[this.indx] >> 16)+1]) > -1)) {
+		var val = this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
+		this.result[this.indx] = (this.input[this.indx] & 32768) 
+			? parseFloat(val) 
+			: parseInt(val);
+		return true;
+	}
+	
+	// embedded JSON
+	else if (char_code == 123 /* { */ || char_code == 91 /* [ */) {
+		var text = this.source.substring((this.input[this.indx] >> 16), (this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
+		this.result[this.indx] = eval('('+text+')');
 		return true;
 	}
 	
@@ -225,43 +239,42 @@ Context.prototype.interpret_elem = function() {
 		if (this.source[this.input[this.indx] >> 16] == '@')
 			var identifier = this.source.substring(
 				(this.input[this.indx] >> 16) + 1, 
-				(this.input[this.indx] >> 16) + (this.input[this.indx] & 65535));
+				(this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
+		// случаи когда ,var или ,@var
+		else if (this.source[this.input[this.indx] >> 16] == ',')
+			var identifier = this.source.substring(
+				(this.input[this.indx] >> 16) + (this.source[(this.input[this.indx] >> 16)+1] == '@' ? 2 : 1), 
+				(this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
 		else
 			var identifier = this.source.substring(
 				this.input[this.indx] >> 16, 
-				(this.input[this.indx] >> 16) + (this.input[this.indx] & 65535));
+				(this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
 	
+		if (this.input[this.indx] & 32768)
+			/* not special constant */;
+			
 		// special constants
-		if (char_code == 116 && identifier == "this") {
+		else if (char_code == 116 && identifier == "this")
 			identifier = "thiz";
-		}
-		// TODO TRUE, True, False, NIL...
+		// TODO Т, TRUE, True, False, NIL...
 		else if (char_code == 116 && identifier == "true") 
 			return this.result[this.indx] = true;
 		else if (char_code == 102 && identifier == "false") 
 			return this.result[this.indx] = false, true;
+		else if (char_code == 78 && identifier == "NIL") 
+			return this.result[this.indx] = null, true;
 		else if (char_code == 110 && identifier == "null") 
 			return this.result[this.indx] = null, true;
 		else if (char_code == 117 && identifier == "undefined") 
 			return this.result[this.indx] = undefined, true;
 		
-		// optimization
-		if (identifier in this.scope) {
-			
-			// (кастыль) на случай если первый элемент функция
-			if (this.indx == 0)
-				this.this_for_elem1 = this.scope;
-					
-			this.result[this.indx] = this.scope[identifier];
-			return true;
-		}
-		
 		// var_name
-		var prefix_len = identifier.indexOf(".");
-		if (prefix_len < 0) {
+		if ((this.input[this.indx] & 32768) == 0) {
 			
 			// var1 - ищем в цепочке scope выше
-			for (var parent_ctx = this.parent;; parent_ctx = parent_ctx.parent) {
+			for (var parent_ctx = this;; parent_ctx = parent_ctx.parent) {
+				
+				// исчерпали ctx, тогда используем window/global
 				if ( ! parent_ctx ) {
 					// (кастыль) на случай если первый элемент функция
 					if (this.indx == 0)
@@ -282,6 +295,7 @@ Context.prototype.interpret_elem = function() {
 		}
 		
 		// obj.fieldname1.fieldname2...
+		var prefix_len = identifier.indexOf(".");
 		var prefix = identifier.substring(0, prefix_len);
 		
 		// base object
@@ -369,7 +383,7 @@ Context.prototype.interpret_elem = function() {
 	// ???
 	else
 		throw new Error("Unrecognized: " + 
-			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + (this.input[this.indx] & 65535)) + 
+			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + (this.input[this.indx] & 32767)) + 
 			"\nSource fragment: " + 
 			this.source.substring(this.input[this.indx] >> 16, (this.input[this.indx] >> 16) + 30)+"...");
 }
@@ -384,8 +398,8 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 	if (step_over_ctx && prt_cnt > 0 && ctx == step_over_ctx && ctx.indx in ctx.result == false) 
 		return ctx;
 		
-	var off = ctx.input[0] instanceof Array == false ? ctx.input[0] >> 16 : 0;
-	var len = ctx.input[0] instanceof Array == false ? (ctx.input[0] & 65535) : 0;
+	var off = ctx.input[0] instanceof Array == false ? ctx.input[0] >>> 16 : 0;
+	var len = ctx.input[0] instanceof Array == false ? (ctx.input[0] & 32767) : 0;
 	
 	// (&&,|| ...)
 	if (len == 2 && "|&".indexOf(ctx.source[off]) > -1) {
@@ -427,9 +441,11 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			return ctx;
 		}
 		
+		ctx.result = ctx.result[ctx.indx-1];
+		
 		// return to parent or no-parent (or debugging ctx)
 		if (ctx.parent && !(ctx.type & 32)) {
-			ctx.parent.result[ctx.parent.indx] = ctx.result[ctx.indx-1];
+			ctx.parent.result[ctx.parent.indx] = ctx.result;
 			ctx = ctx.parent;
 			continue;
 		}
@@ -464,7 +480,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				ctx.result[ctx.indx] = ctx.result[ctx.indx]*1 + (ctx.source[off] == '+' ? 1 : -1);
 				ctx.set(
 					ctx.source.substring(ctx.input[ctx.indx] >> 16,
-						(ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535)),
+						(ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 32767)),
 					ctx.result[ctx.indx]
 				);
 				
@@ -603,34 +619,66 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		var quote_list = function(input, start_i, level) {
 			// infinity recursion protection
 			if (level > 20) {
-				console.error("Max deep level for quoting exceeded! (empty list returned)");
+				throw new Error("Max deep level for quoting exceeded! (max level 20)");
 				return [];
 			}
 			
 			var result = [];
 			for (var i = start_i; i < input.length-1; i++) {
-				if (input[i] instanceof Array) 
+				if (input[i] instanceof Array) {
 					result.push(quote_list(input[i], 0, level+1));
-				else 
+					continue;
+				}
+				
+				var first_char = ctx.source[input[i] >> 16];
 				
 				// inner quoted list
-				if (input[i] & 65535 == 2 && 
-					(ctx.source[input[i] >> 16] == "'" || ctx.source[input[i] >> 16] == "`") && ctx.source[(input[i] >> 16) + 1] == '(')
+				if (input[i] & 32767 == 2 && 
+					(first_char == "'" || first_char == '`') && ctx.source[(input[i] >> 16) + 1] == '(')
 					result.push(quote_list(input[i], 1, level+1));
 					
 				// number
-				else if ("0123456789".indexOf(ctx.source[input[i] >> 16][0]) > -1)
-					result.push(parseInt(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 65535))));
+				else if ("0123456789".indexOf(first_char) > -1 || (first_char == '-' && "0123456789".indexOf(ctx.source[(input[i] >> 16) + 1]) > -1)) {
+					result.push((input[i] & 32768) 
+						? parseFloat(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 32767)))
+						: parseInt(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 32767))));
+				}
 				// symbol+quoted_atom
-				else if ("'`:#@".indexOf(ctx.source[input[i] >> 16][0]) > -1)
-					result.push(ctx.source.substring((input[i] >> 16) + 1, (input[i] >> 16) + (input[i] & 65535)));
+				else if ("'`:#@&".indexOf(first_char) > -1) {
+					var atom = new String(ctx.source.substring((input[i] >> 16) + 1, (input[i] >> 16) + (input[i] & 32767)));
+					atom.atom_prefix = first_char;
+					result.push(atom);
+				}
+				// unquoted_atom
+				else if (first_char == ',') {
+					var tmp_ctx = new Context(ctx.scope, ctx, input, i, ctx.source, ctx.file, 0);
+					tmp_ctx.interpret_elem();
+					
+					// ,@list - надо добавить все элементы в результат
+					if (ctx.source[(input[i] >> 16) + 1] == '@') {
+						if (tmp_ctx.result[i] instanceof Array)
+						for (var ii = 0; ii < tmp_ctx.result[i].length; ii++)
+							result.push(tmp_ctx.result[i][ii]);
+						continue;
+					}	
+					else
+						result.push(tmp_ctx.result[i]);
+				}
 				// string
-				else if (ctx.source[input[i] >> 16][0] == '"')
-					result.push(JSON.parse(ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 65535))));
-				// atom/any...
-				else 
-					result.push(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 65535)));
+				else if (first_char == '"')
+					result.push(JSON.parse(ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767))));
+				// JSON
+				else if (first_char == '[' || first_char == '{') {
+					result.push(eval("("+ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767))+")"));
+				}
+				// atom (var_name)
+				else {
+					var atom = new String(ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767)));
+					atom.atom_prefix = "";
+					result.push(atom);
+				}
 			}
+			
 			return result;
 		}
 		ctx.result = quote_list(ctx.input, 1, 1);
@@ -663,7 +711,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			
 			// setq
 			if (len == 4)
-				ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535));
+				ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 32767));
 			
 			// set
 			else {
@@ -706,7 +754,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			}
 		}
 		
-		debugger;
+		debugger; // TODO нехватка аргумнтов
 		throw new Error("???");
 	}
 	
@@ -725,7 +773,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		if (ctx.indx < ctx.input.length-1) {
 			// setq
 			if (len == 6)
-				ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535));
+				ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 32767));
 			
 			// set
 			else {
@@ -812,32 +860,186 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		throw new Error("???");
 	}
 	
-	// (if () ... :else ... :elseif ...)
-	// TODO :elseif ...
-	else if (len == 2 && ctx.source[off] == "i" && ctx.source[off+1] == "f") {
+	// (let (...) ...)
+	else if (len == 3 && ctx.source[off] == "l" && ctx.source[off+1] == "e" 
+		&& ctx.source[off+2] == "t") {
 		
-		// if
+		// let (skip)
 		if (ctx.indx == 0) {
-			ctx.indx = 1;
+			ctx.scope = {};
+			ctx.indx++;
 			return ctx;
 		}
 		
-		// if-test
+		// let-set
 		if (ctx.indx == 1) {
+			if (ctx.input[ctx.indx] instanceof Array == false)
+				throw new Error("Argument 2 must be list!");
+
+			// вычеслим set-часть
+			if (!ctx.result[ctx.indx]) {
+			
+				var new_ctx = new Context(ctx.scope, ctx, [-65536 + 1], 1, ctx.source, ctx.file, 0);
+			
+				// переупакуем в let-set-part
+				for (var i = 0; i < ctx.input[1].length-1; i++)
+					if (ctx.input[1][i] instanceof Array) {
+						new_ctx.input.push(ctx.input[1][i][0]);
+						new_ctx.input.push(ctx.input[1][i][1]);
+					}
+					else { 
+						new_ctx.input.push(ctx.input[1][i]);
+						new_ctx.input.push(undefined);
+					}
+				new_ctx.input.push(ctx.input[1][ctx.input[1].length-1]);
+				
+				// запускаем вычесление
+				return new_ctx;
+			}
+			
+			// создадим свой scope
+// 			ctx.scope = {};
+// 			for (var i = 1; i < ctx.result[1].length; i+=2)
+// 				ctx.scope[ctx.result[1][i]] = ctx.result[1][i+1];
+			
+			// переключимся на тело let
+			ctx.indx++;
+			return ctx;
+		}
+		
+		// let-body
+		if (ctx.indx > 1 && ctx.indx < ctx.input.length-1) {
 			
 			// вычесляем элемент (если список, то переключаемся на него)
 			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
 				return ctx.result[ctx.indx]; /* return Context */
 			
-			ctx.result[0] = !!ctx.result[1]; // TODO one atom in list?
+			// след.элемент ->
+			if (ctx.indx < ctx.input.length-2) {
+				ctx.indx++;
+				return ctx;
+			}
+			
+			ctx.result = ctx.result[ctx.indx];
+			
+			// return to parent or no-parent (or debugging ctx)
+			if (ctx.parent && !(ctx.type & 32)) {
+				ctx.parent.result[ctx.parent.indx] = ctx.result;
+				ctx = ctx.parent;
+				continue;
+			}
+			else {
+				ctx.indx = ctx.input.length;
+				return ctx;
+			}
+		}
+		
+		throw new Error("???");
+		debugger;
+	}
+	// [let-set-part]
+	else if (off == 65535 && len == 1) {
+		
+		// name
+		if (ctx.indx % 2 == 1) {
+			ctx.result[ctx.indx] = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 32767));
+			ctx.indx++;
+			return ctx;
+		}
+		
+		// value
+		if (ctx.indx % 2 == 0) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+				return ctx.result[ctx.indx]; /* return Context */
+			
+			// пара var_name, var_value вычеслена -> добавим в let-scope
+			ctx.scope[ctx.result[ctx.indx-1]] = ctx.result[ctx.indx];
+			
+			// след.элемент?
+			if (ctx.indx < ctx.input.length-2) {
+				ctx.indx++;
+				return ctx;
+			}
+			
+			// return to parent or no-parent (or debugging ctx)
+			if (ctx.parent && !(ctx.type & 32)) {
+				ctx.parent.result[ctx.parent.indx] = ctx.result;
+				ctx = ctx.parent;
+				continue;
+			}
+			else {
+				ctx.indx = ctx.input.length;
+				return ctx;
+			}
+		}
+	}
+	
+	// (if () ... :else ... :elseif ...)
+	else if (len == 2 && ctx.source[off] == "i" && ctx.source[off+1] == "f") {
+		
+		// if (skip)
+		if (ctx.indx == 0) {
+			ctx.result[0] = 0;
+			ctx.indx++;
+			return ctx;
+		}
+		
+		// :else, :elseif (skip)
+		if (ctx.indx == ctx.result[0]) {
+			
+			// проверим след. элемент на :else/:elseif
+			if (ctx.input.length > ctx.result[0]+1 && ctx.input[ctx.indx+1] instanceof Array == false && (ctx.input[ctx.indx+1] & 32767) >= 5) {
+				var off2 = ctx.input[ctx.indx+1] >> 16;
+				var len2 = (ctx.input[ctx.indx+1] & 32767)
+				var next_is_else = ctx.source[off2] == ':' 
+					&& ctx.source[off2+1] == 'e' && ctx.source[off2+2] == 'l' 
+					&& ctx.source[off2+3] == 's' && ctx.source[off2+4] == 'e' 
+					&& (len2 == 5 || len2 == 7 
+					&& ctx.source[off2+5] == 'i' && ctx.source[off2+6] == 'f');
+			}
+			else 
+				var next_is_else = false;
+			
+			// если дальше не :else, а инструкция -> то переключимся на неё
+			if (ctx.input.length > ctx.indx+2 && next_is_else == false) {
+				ctx.indx++; 
+				return ctx;
+			}
+			
+			// :else keyword found -> return undefined
+			ctx.indx == ctx.input.length;
+			ctx.result = undefined;
+			
+			// return to parent or no-parent (or debugging ctx)
+			if (ctx.parent && !(ctx.type & 32)) {
+				ctx.parent.result[ctx.parent.indx] = ctx.result;
+				ctx = ctx.parent;
+				continue; // return ctx; // for step_over
+			}
+			else {
+				ctx.indx = ctx.input.length;
+				return ctx;
+			}
+		}
+		
+		// if-test, elseif-test
+		if (ctx.indx == ctx.result[0]+1 && (ctx.input[ctx.result[0]] & 32767) != 5) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+				return ctx.result[ctx.indx]; /* return Context */
+			
+			ctx.result[ctx.indx] = !!ctx.result[ctx.indx]; // TODO one atom in list?
 			
 			// -> true
-			if (ctx.result[0]) { 
+			if (ctx.result[ctx.indx]) { 
 				
-				// проверим 2ой элемент на :else/:elseif
-				if (ctx.input.length > 2 && ctx.input[2] instanceof Array == false && (ctx.input[2] & 65535) >= 5) {
-					var off2 = ctx.input[2] >> 16;
-					var len2 = (ctx.input[2] & 65535)
+				// проверим след. элемент на :else/:elseif
+				if (ctx.input.length > ctx.result[0]+1 && ctx.input[ctx.indx+1] instanceof Array == false && (ctx.input[ctx.indx+1] & 32767) >= 5) {
+					var off2 = ctx.input[ctx.indx+1] >> 16;
+					var len2 = (ctx.input[ctx.indx+1] & 32767)
 					var next_is_else = ctx.source.charCodeAt(off2) == 58 && ctx.source.charCodeAt(off2+1) == 101 && ctx.source.charCodeAt(off2+2) == 108 && ctx.source.charCodeAt(off2+3) == 115 && ctx.source.charCodeAt(off2+4) == 101 && (len2 == 5 || 
 					len2 == 7 && 
 					ctx.source.charCodeAt(off2+5) == 105 && ctx.source.charCodeAt(off2+6) == 102);
@@ -845,35 +1047,41 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				else 
 					var next_is_else = false;
 				
-				if (ctx.input.length > 2 && next_is_else == false) {
-					ctx.indx = 2; 
+				// если дальше не :else, а инструкция -> то переключимся на неё
+				if (ctx.input.length > ctx.indx+2 && next_is_else == false) {
+					ctx.indx++; 
 					return ctx;
 				}
+				// иначе ctx.parent...
 			}
 			
 			// -> false
 			else { 
 				
 				// ищем :else/:elseif параметр/маркер
-				for (ctx.indx = 2; ctx.indx < ctx.input.length-1; ctx.indx++)
+				for (ctx.indx++; ctx.indx < ctx.input.length-1; ctx.indx++)
 				if (ctx.input[ctx.indx] instanceof Array == false) {
 					var off2 = ctx.input[ctx.indx] >> 16;
-					var len2 = (ctx.input[ctx.indx] & 65535)
+					var len2 = (ctx.input[ctx.indx] & 32767)
 					if (ctx.source.charCodeAt(off2) == 58 && ctx.source.charCodeAt(off2+1) == 101 && ctx.source.charCodeAt(off2+2) == 108 && ctx.source.charCodeAt(off2+3) == 115 && ctx.source.charCodeAt(off2+4) == 101 && (len2 == 5 || 
 					len2 == 7 && 
-					ctx.source.charCodeAt(off2+5) == 105 && ctx.source.charCodeAt(off2+6) == 102))
+					ctx.source.charCodeAt(off2+5) == 105 && ctx.source.charCodeAt(off2+6) == 102)) {
+						ctx.result[0] = ctx.indx;
 						return ctx;
+					}
 				}
+				
+				// no :else keyword found
 			}
 			
-			// no :else keyword found -> return undefined
-			ctx.indx == ctx.input.length-1;
+			ctx.indx == ctx.input.length;
+			ctx.result = undefined;
 			
 			// return to parent or no-parent (or debugging ctx)
 			if (ctx.parent && !(ctx.type & 32)) {
-				ctx.parent.result[ctx.parent.indx] = undefined;
+				ctx.parent.result[ctx.parent.indx] = ctx.result;
 				ctx = ctx.parent;
-				continue;
+				continue; // return ctx; // for step_over
 			}
 			else {
 				ctx.indx = ctx.input.length;
@@ -892,9 +1100,9 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			if ( ctx.indx < ctx.input.length-2) {
 				
 				// проверим след.элемент на :else/:elseif
-				if (ctx.input[ctx.indx+1] instanceof Array == false && (ctx.input[ctx.indx+1] & 65535) >= 5) {
+				if (ctx.input[ctx.indx+1] instanceof Array == false && (ctx.input[ctx.indx+1] & 32767) >= 5) {
 					var off2 = ctx.input[ctx.indx+1] >> 16;
-					var len2 = (ctx.input[ctx.indx+1] & 65535)
+					var len2 = (ctx.input[ctx.indx+1] & 32767)
 					var next_is_else = ctx.source.charCodeAt(off2) == 58 && ctx.source.charCodeAt(off2+1) == 101 && ctx.source.charCodeAt(off2+2) == 108 && ctx.source.charCodeAt(off2+3) == 115 && ctx.source.charCodeAt(off2+4) == 101 && (len2 == 5 || 
 					len2 == 7 && 
 					ctx.source.charCodeAt(off2+5) == 105 && ctx.source.charCodeAt(off2+6) == 102);
@@ -902,7 +1110,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				else
 					var next_is_else = false;
 				
-				// можно переключится на следующий?
+				// если можно переключится на след. то переключимся
 				if (next_is_else == false) {
 					ctx.indx++;
 					return ctx;
@@ -950,14 +1158,17 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				return ctx.result[ctx.indx]; /* return Context */
 			
 			// -> true
-			// TODO check one atom in the list?
+			// TODO check one atom in the list(?)
 			if (!!ctx.result[1]) { 
+				// почистим результат, если это не первая итерация
+				ctx.result.splice(2);
+				
 				ctx.indx = 2;
 				return ctx; 
 			}
 			
 			// -> false
-			ctx.result = ctx.result[2];
+			ctx.result = ctx.result[ctx.result.length-1];
 			
 			// return to parent or no-parent (or debugging ctx)
 			if (ctx.parent && !(ctx.type & 32)) {
@@ -981,12 +1192,11 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			// след.элемент body?
 			if (ctx.indx+1 < ctx.input.length-1) {
 				ctx.indx++;
-				continue;
+				return ctx; // for step_over
 			}
 			
-			// почистим для след.итерации
-			for (var i = 1; i < ctx.result.length; i++)
-				delete ctx.result[i];
+			// почистим test-результат
+			delete ctx.result[1];
 			
 			// и перезапустим
 			ctx.indx = 1;
@@ -1050,8 +1260,14 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
 				return ctx.result[ctx.indx]; /* return Context */
 			
+			ctx.indx == ctx.input.length-1;
+			
 			// кидаем эксепшен
 			throw ctx.result[1];
+		}
+		
+		// если попросили продолжить в дебагере
+		if (ctx.indx == ctx.input.length-1) {
 			
 			// return to parent or no-parent (or debugging ctx)
 			if (ctx.parent && !(ctx.type & 32)) {
@@ -1095,25 +1311,26 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		// body
 		if (ctx.indx == 2) {
 			
-			// создадим функцию 
-			var input = ctx.input, 
-				source = ctx.source, 
-				file = ctx.file;
+			var __littlelisp = {
+				args_names: ctx.input[2],
+				body: ctx.input.slice(3), 
+				source: ctx.source, 
+				file: ctx.file
+			};
+			
+			// создадим JS-функцию 
 			ctx.result = function(){ return function() {
-				var lambdaScope = {arguments: arguments};
-				var lambdaArgNames = input[1];
+				var lambdaScope = {arguments: arguments, thiz: this};
+				var lambdaArgNames = __littlelisp.args_names;
 				for(var i = 0; i < lambdaArgNames.length-1; i++)
-					lambdaScope[source.substring(lambdaArgNames[i] >> 16, (lambdaArgNames[i] >> 16) + (lambdaArgNames[i] & 65535))] = arguments[i] || undefined;
+					lambdaScope[ __littlelisp.source.substring(lambdaArgNames[i] >> 16, (lambdaArgNames[i] >> 16) + (lambdaArgNames[i] & 32767))] = arguments[i] || undefined;
 				
-				return littleLisp.interpret(input[2], lambdaScope, source, file);
+				return littleLisp.interpret( __littlelisp.body, lambdaScope,  __littlelisp.source,  __littlelisp.file);
 			}}();
 			
 			// дополнительно сохраним исходный код функции на теле функции
-			ctx.result.__args_names = ctx.input[1];
-			ctx.result.__body = ctx.input[2];
-			ctx.result.__source = ctx.source;
-			ctx.result.__file = ctx.file;
-			
+			ctx.result.__littlelisp = __littlelisp;
+
 			// return to parent or no-parent (or debugging ctx)
 			if (ctx.parent && !(ctx.type & 32)) {
 				ctx.parent.result[ctx.parent.indx] = ctx.result;
@@ -1134,21 +1351,21 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 	// (defmeth <name> (args...) (...body...)) 
 	// (defmeth-static <name> (args...) (...body...))
 	// (defclassmeth <name> (args...) (...body...))
-	else if (len == 5 && ctx.source[off] == "d" && ctx.source[off+1] == "e" 
-			&& ctx.source[off+2] == "f" && ctx.source[off+3] == "u" 
-			&& ctx.source[off+4] == "n" 
-			|| (len == 7 && ctx.source[off] == 'd' && ctx.source[off+1] == 'e' 
-			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'm'
-			&& ctx.source[off+4] == 'e' && ctx.source[off+5] == 't'
-			&& ctx.source[off+6] == 'h')
-			|| (len == 12 && ctx.source[off] == 'd' && ctx.source[off+1] == 'e' 
-			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'c'
+	// (defmacro <name> (args...) (...body...))
+	else if (len > 3 && ctx.source[off] == "d" && ctx.source[off+1] == "e" 
+		&& ctx.source[off+2] == "f" 
+		&& (len == 5 && ctx.source[off+3] == "u" && ctx.source[off+4] == "n"
+		||  len == 8 && ctx.source[off+3] == 'm' && ctx.source[off+4] == 'a' 
+			&& ctx.source[off+5] == 'c' && ctx.source[off+6] == 'r'
+			&& ctx.source[off+7] == 'o'
+		||  len == 7 && ctx.source[off+3] == 'm' && ctx.source[off+4] == 'e' 
+			&& ctx.source[off+5] == 't' && ctx.source[off+6] == 'h'
+		||  len == 12 && ctx.source[off+3] == 'c'
 			&& ctx.source[off+4] == 'l' && ctx.source[off+5] == 'a'
 			&& ctx.source[off+6] == 's' && ctx.source[off+7] == 's'
 			&& ctx.source[off+8] == 'm' && ctx.source[off+9] == 'e'
-			&& ctx.source[off+10] == 't' && ctx.source[off+11] == 'h')
-			|| (len == 14 && ctx.source[off] == 'd' && ctx.source[off+1] == 'e' 
-			&& ctx.source[off+2] == 'f' && ctx.source[off+3] == 'm'
+			&& ctx.source[off+10] == 't' && ctx.source[off+11] == 'h'
+		||  len == 14 && ctx.source[off+3] == 'm'
 			&& ctx.source[off+4] == 'e' && ctx.source[off+5] == 't'
 			&& ctx.source[off+6] == 'h' && ctx.source[off+7] == '-'
 			&& ctx.source[off+8] == 's' && ctx.source[off+9] == 't'
@@ -1178,26 +1395,30 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		// body
 		if (ctx.indx == 3) {
 			
+			var __littlelisp = {
+				args_names: ctx.input[2],
+				body: ctx.input.slice(3), 
+				source: ctx.source, 
+				file: ctx.file
+			};
+			
+			// macros?
+			if (len == 8) __littlelisp.is_macros = true;
+			
 			// создадим функцию 
-			var input = ctx.input, 
-				source = ctx.source, 
-				file = ctx.file;
 			var func = function(){ return function() {
 				var new_scope = {arguments: arguments, thiz: this};
-				var arg_names = input[2];
+				var arg_names = __littlelisp.args_names;
 				for(var i = 0; i < arg_names.length-1; i++)
-					new_scope[source.substring(arg_names[i] >> 16, (arg_names[i] >> 16) + (arg_names[i] & 65535))] = arguments[i] || undefined;
+					new_scope[__littlelisp.source.substring(arg_names[i] >> 16, (arg_names[i] >> 16) + (arg_names[i] & 32767))] = arguments[i] || undefined;
 				
-				return littleLisp.interpret(input[3], new_scope, source, file);
+				return littleLisp.interpret(__littlelisp.body, new_scope, __littlelisp.source, __littlelisp.file);
 			}}();
 			
 			// дополнительно сохраним исходный код функции на теле функции
-			func.__args_names = ctx.input[2];
-			func.__body = ctx.input.slice(3);
-			func.__source = ctx.source;
-			func.__file = ctx.file;
+			func.__littlelisp = __littlelisp;
 			
-			var func_name = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 65535));
+			var func_name = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 32767));
 			
 			// defmeth?
 			if (len == 7)
@@ -1239,7 +1460,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		// class_name
 		if (ctx.indx == 1) {
 			// ClassName
-			ctx.result[1] = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 65535));
+			ctx.result[1] = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 32767));
 			ctx.indx++;
 			return ctx;
 		}
@@ -1247,13 +1468,13 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		// :extends ... :instvars ... :classvars ... :constructor ...
 		if (ctx.indx < ctx.input.length-1) {
 
-			var token1 = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535));
+			var token1 = ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 32767));
 			// TODO maybe interpret_elem()?
 			var token2 = ctx.indx+1 >= ctx.input.length-1
 				? undefined
 				: ctx.input[ctx.indx+1] instanceof Array 
 				? ctx.input[ctx.indx+1] // list
-				: ctx.source.substring(ctx.input[ctx.indx+1] >> 16, (ctx.input[ctx.indx+1] >> 16) + (ctx.input[ctx.indx+1] & 65535));
+				: ctx.source.substring(ctx.input[ctx.indx+1] >> 16, (ctx.input[ctx.indx+1] >> 16) + (ctx.input[ctx.indx+1] & 32767));
 		
 			// :extends SuperClassName
 			if (token1.match(/[:@`']extends/))
@@ -1270,7 +1491,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				// :instvars (...)
 				if(ctx.input[ctx.indx+1] instanceof Array)
 				for (var i = 1; i < token2.length-1; i++) {
-					token2[i] = ctx.source.substring(token2[i] >> 16, (token2[i] >> 16) + (token2[i] & 65535)).trim(":@'`\"");
+					token2[i] = ctx.source.substring(token2[i] >> 16, (token2[i] >> 16) + (token2[i] & 32767)).trim(":@'`\"");
 				}
 				
 				// :instvars "..."
@@ -1294,7 +1515,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 				// :classvars (...)
 				if(ctx.input[ctx.indx+1] instanceof Array)
 				for (var i = 1; i < token2.length-1; i++) {
-					token2[i] = ctx.source.substring(token2[i] >> 16, (token2[i] >> 16) + (token2[i] & 65535)).trim(":@'`\"");
+					token2[i] = ctx.source.substring(token2[i] >> 16, (token2[i] >> 16) + (token2[i] & 32767)).trim(":@'`\"");
 				}
 				
 				// :classvars "..."
@@ -1330,15 +1551,15 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			new_class.prototype = window[class_name].prototype;
 
 		// instvars, classvars, extends...
-		new_class.__initialize_code = ctx.result.slice(2).join("\n");
+		new_class.__littlelisp.initialize_code = ctx.result.slice(2).join("\n");
 		
 		// для удобного последующего редактирования
-		new_class.__source = ctx.source.substring(ctx.input[ctx.input.length-1] >> 16, (ctx.input[ctx.input.length-1] >> 16) + (ctx.input[ctx.input.length-1] & 65535));
-		new_class.__file = ctx.file;
+		new_class.__littlelisp.source = ctx.source.substring(ctx.input[ctx.input.length-1] >> 16, (ctx.input[ctx.input.length-1] >> 16) + (ctx.input[ctx.input.length-1] & 32767));
+		new_class.__littlelisp.file = ctx.file;
 		
 		// зарегистрируем наконец новый класс (заменим существующий)
 		window[class_name] = new_class;
-		eval(window[class_name].initialize_code);
+		eval(window[class_name].__littlelisp.initialize_code);
 		
 		ctx.result = undefined; // не возвращаем результат
 		
@@ -1352,15 +1573,6 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			ctx.indx = ctx.input.length;
 			return ctx;
 		}
-	}
-	
-	// TODO (defmacro <name> (args...) (...body...))
-	else if (len == 8 && ctx.source[off] == "d" && ctx.source[off+1] == "e" 
-			&& ctx.source[off+2] == "f" && ctx.source[off+3] == "m" 
-			&& ctx.source[off+4] == "a" && ctx.source[off+4] == "c"
-			&& ctx.source[off+4] == "r" && ctx.source[off+4] == "o") {
-		throw new Error("Macroses not implemented yet.");
-		debugger;
 	}
 	
 	// (new <name> args...)
@@ -1403,7 +1615,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		/* создаём объект */
-		var class_name = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 65535));
+		var class_name = ctx.source.substring(ctx.input[1] >> 16, (ctx.input[1] >> 16) + (ctx.input[1] & 32767));
 		
 		// проверим на существование класса
 		if (class_name in window == false || window[class_name] instanceof Function == false)
@@ -1411,7 +1623,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			// new Error("message");
 		
 		// lisp-class
-		if (window[class_name].__source && window[class_name].__file) {
+		if (window[class_name].__littlelisp) {
 			ctx.result[0] = {};
 			ctx.result[0].__proto__ = ctx.result[1].prototype;
 			
@@ -1429,17 +1641,17 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 					throw "Constructor " + ctor_name[0] + " not a function!";
 			
 				// lisp-функция
-				if ("__args_names" in ctor){
+				if ("__littlelisp" in ctor){
 					var new_scope = {arguments: ctx.result.slice(2), thiz: ctx.result[0]};
-					var arg_names = ctor.__args_names;
+					var arg_names = ctor.__littlelisp.args_names;
 					for(var i = 0; i < arg_names.length-1; i++)
-					new_scope[ctor.__source.substring(arg_names[i] >> 16, 
-						(arg_names[i] >> 16) + (arg_names[i] & 65535))] 
+					new_scope[ctor.__littlelisp.source.substring(arg_names[i] >> 16, 
+						(arg_names[i] >> 16) + (arg_names[i] & 32767))] 
 						= ctx.result[i+2] || undefined;
 						
 					ctx.indx = ctx.input.length-1; // отметим, что завершили создание объекта заранее
 					
-					return new Context(new_scope, ctx, ctor.__body, 0, ctor.__source, ctor.__file, 16 /* type=function */);
+					return new Context(new_scope, ctx, ctor.__littlelisp.body, 0, ctor.__littlelisp.source, ctor.__littlelisp.file, 16 /* type=function */);
 				}
 			}
 		}
@@ -1466,13 +1678,13 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		&& ctx.source[off+4] == "r" && ctx.source[off+5] == "n") {
 		
 		// первым делом вычислим аргумент (если он есть)
-		if (ctx.indx == 0 && ctx.input.length == 3) {
+		if (ctx.indx == 0 && ctx.input.length > 2) {
 			ctx.indx = 1;
 			return ctx;
 		}
 		
 		// вычислим аргумент (если есть)
-		if (ctx.indx == 1 && ctx.input.length == 3) {
+		if (ctx.indx == 1 && ctx.input.length > 2) {
 			
 			// вычисляем элемент (если список, то переключаемся на него)
 			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
@@ -1543,6 +1755,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 	}
 	
 	// (continue)
+	// TODO (continue <LEVEL>)?
 	else if (len == 8 && ctx.source[off] == "c" && ctx.source[off+1] == "o" 
 		&& ctx.source[off+2] == "n" && ctx.source[off+3] == "t" 
 		&& ctx.source[off+4] == "i" && ctx.source[off+5] == "n" 
@@ -1621,7 +1834,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		if (ctx.input.length < 3)
 			throw "Need minimum 1 argument!";
 		
-		// inc (skip)
+		// typeof (skip)
 		if (ctx.indx == 0) {
 			ctx.indx = 1;
 			return ctx;
@@ -1644,7 +1857,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		if (ctx.indx < ctx.input.length-1) {
 
 			// вычесляем тип с поправкой на lisp-типы
-			var type = "`':#".indexOf(ctx.source[ctx.input[1] >> 16]) > -1
+			var type = ctx.result[1] instanceof String && "atom_prefix" in ctx.result[1] 
 				? "atom"
 				: typeof ctx.result[1];
 			
@@ -1671,15 +1884,220 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		throw new Error("???");
 	}
 	
+	// (gensym ...)
+	else if (len == 6 && ctx.source[off] == "g" && ctx.source[off+1] == "e" 
+		&& ctx.source[off+2] == "n" && ctx.source[off+3] == "s" 
+		&& ctx.source[off+4] == "y" && ctx.source[off+5] == "m") {
+		
+		// gensym (skip)
+		if (ctx.indx == 0) {
+			ctx.indx = 1;
+			return ctx;
+		}
+		
+		// есть аргумент
+		if (ctx.indx == 1 && ctx.input.length == 3) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+					return ctx.result[ctx.indx];
+			
+			ctx.indx++;
+// 			continue;
+		}
+		
+		// делаем дело
+		if (ctx.indx == ctx.input.length-1) {
+
+			ctx.result = new String((ctx.result[1] || "GTMP") + (gensym_counter++));
+			ctx.result.atom_prefix = "";
+			
+			// return to parent or no-parent (or debugging ctx)
+			if (ctx.parent && !(ctx.type & 32)) {
+				ctx.parent.result[ctx.parent.indx] = ctx.result;
+				ctx = ctx.parent;
+				continue;
+			}
+			else {
+				ctx.indx = ctx.input.length;
+				return ctx;
+			}
+		}
+		
+		debugger;
+		throw new Error("???");
+	}
+	
+	// (<macros> ...)
+	else if (ctx.result.length && ctx.result[0] instanceof Function && (ctx.result[0].__littlelisp||{}).is_macros) {
+		
+		// аргументы макроса не вычесляются
+		if (ctx.indx < ctx.input.length-1) {
+			function macros_decoder(input, i) {
+				var result = [];
+
+				// list
+				if (input[i] instanceof Array) {
+					for (var ii = 0; ii < input[i].length-1; ii++)
+						result.push(macros_decoder(input[i], ii));
+					return result;
+				}
+				
+				var first_char = ctx.source[input[i] >> 16];
+		
+				// number
+				if ("0123456789".indexOf(first_char) > -1 || (first_char == '-' && "0123456789".indexOf(ctx.source[(input[i] >> 16) + 1]) > -1))
+					result.push((input[i] & 32768)
+						? parseFloat(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 32767)))
+						: parseInt(ctx.source.substring(input[i] >> 16, (input[i] >> 16) + (input[i] & 32767))));
+				// string
+				else if (first_char == '"')
+					result.push(JSON.parse(ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767))));
+				// inner quoted list
+				if (input[i] & 32767 == 2 && 
+					(first_char == "'" || first_char == "`") && ctx.source[(input[i] >> 16) + 1] == '(') {
+					var quote = new String("quote"); quote.atom_prefix = "";
+					result.push(quote);
+				}
+				// embedded JSON
+				else if (first_char == '{' || first_char == '[') {
+					result.push(eval("("+ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767))+")"));
+				}
+				// symbol+quoted_atom
+				else if ("'`:#@&".indexOf(first_char) > -1) {
+					var atom = new String(ctx.source.substring((input[i] >> 16) + 1, (input[i] >> 16) + (input[i] & 32767)));
+					atom.atom_prefix = first_char;
+					result.push(atom);
+				}
+				// atom (var_name)
+				else {
+					var atom = new String(ctx.source.substring((input[i] >> 16), (input[i] >> 16) + (input[i] & 32767)));
+					atom.atom_prefix = "";
+					result.push(atom);
+				}
+				return result[0];				
+			} // macros_encoder
+			
+			// трансформируем аргумент в данные
+			ctx.result[ctx.indx] = macros_decoder(ctx.input, ctx.indx);
+			
+			// двигаемся к след.элементу списка
+			if (ctx.indx+1 < ctx.input.length-1) {
+				ctx.indx++;
+				return ctx;
+			}
+		}
+		
+		// вызов макроса завершён успешно
+		if (ctx.indx == ctx.input.length-1 && ctx.result.length == ctx.input.length) { 
+			
+			function macros_encoder(elem, level, new_source) {
+				if (elem instanceof Array) {
+					if (elem.length == 0)
+						return new_source.push("()");
+					
+					// преобразуем все элементы в строки
+					var start_new_source_len = new_source.length;
+					for (var i = 0; i < elem.length; i++) {
+						macros_encoder(elem[i], level + 1, new_source);
+						
+						// откроем скобку
+						if (i == 0) {
+							new_source[start_new_source_len] = 
+							(level > 0 ? '\n' : '') + 
+							(new Array(level+1)).join("\t") + '(' + new_source[start_new_source_len];
+						}
+					}
+					
+					// закроем скобку
+					new_source[new_source.length-1] = new_source[new_source.length-1] + ')';
+				}
+				else if (elem == null)
+					new_source.push("null");
+				else if (typeof elem == "number" || typeof elem == "boolean")
+					new_source.push(elem.toString());
+				else if (typeof elem == "undefined")
+					new_source.push("undefined");
+				else if (typeof elem == "string")
+					new_source.push(JSON.stringify(elem));
+				else if (elem instanceof String && "atom_prefix" in elem)
+					new_source.push(elem.atom_prefix + elem);
+				else { // object
+					new_source.push(JSON.stringify(elem));
+				}
+			}
+			
+			// преобазуем в исходный-текст
+			var new_source = [];
+			macros_encoder(ctx.result[ctx.result.length-1], 0, new_source);
+			new_source = new_source.join(' ');
+			
+			// парсим в код
+			var new_input = parse(new_source);
+			
+			// заблокируем дальнейшее выполнение
+			ctx.indx = ctx.input.length;
+			
+			// заменяем ctx вызова макроса на ctx нового кода
+			return new Context(ctx.scope, ctx.parent, 
+				new_input, 0,
+				new_source, 
+				"<macros-result>"
+			);
+		}
+		
+		// переключимся непосредственно на вызов макроса
+		ctx.indx = ctx.input.length-1
+		
+		// упакуем аргументы в новый scope
+		var new_scope = {arguments: ctx.result.slice(1), thiz: ctx.this_for_elem1};
+		var arg_names = ctx.result[0].__littlelisp.args_names;
+		for(var i = 0; i < arg_names.length-1; i++)
+			new_scope[ctx.result[0].__littlelisp.source.substring(arg_names[i] >> 16, (arg_names[i] >> 16) + (arg_names[i] & 32767))] 
+				= ctx.result[i+1];
+		
+		// TCO - оптимизация хвостовой рекурсии.
+		for (var up_ctx = ctx; up_ctx; up_ctx = up_ctx.parent) {
+				
+			// если не в хвосте, то прервём оптимизацию
+			if (up_ctx.indx < up_ctx.input.length-2) break;
+				
+			// в хвосте функции?
+			if (up_ctx.type & 16) {
+					
+				// если тело одинаковое, то это рекурсия
+				if (up_ctx.input == ctx.result[0].__littlelisp.body) {
+						
+					// переиспользуем контекст функции и вернём его
+					up_ctx.scope = new_scope;
+					up_ctx.indx = 0;
+					up_ctx.result = [];
+					return up_ctx;
+				}
+			}
+		}
+		
+		// делаем вызов макроса
+		return new Context(new_scope, ctx, 
+			ctx.result[0].__littlelisp.body, 
+			0, // ctx.indx
+			ctx.result[0].__littlelisp.source, 
+			ctx.result[0].__littlelisp.file, 
+			16 + 64 /* type=function+macros */);
+	}
+	
 	// (....)
 	else {
 		
 		// вычесляем элемент (если список, то переключаемся на него)
-		if (ctx.indx >= 0 && ctx.indx < ctx.input.length-1 
-		&& ctx.indx in ctx.result == false && !ctx.interpret_elem())
-			return ctx.result[ctx.indx]; /* return Context */
+		if (ctx.indx >= 0 && ctx.indx < ctx.input.length-1 && ctx.indx in ctx.result == false) {
+			
+			// вычесляем элемент (если список, то переключаемся на него)
+			if (ctx.indx in ctx.result == false && !ctx.interpret_elem())
+					return ctx.result[ctx.indx];
+		}
 		
-		// двигаемся в право (след.элементу) ->
+		// двигаемся к след.элементу списка
 		if (ctx.indx+1 < ctx.input.length-1) {
 			ctx.indx++;
 			return ctx;
@@ -1692,7 +2110,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			
 			// если вызов завершён -> возвращаем результат наверх
 			if (ctx.indx == ctx.input.length-1) {
-
+				
 				// return to parent or no-parent (or debugging ctx)
 				if (ctx.parent && !(ctx.type & 32)) {
 					ctx.parent.result[ctx.parent.indx] = ctx.result[ctx.indx];
@@ -1710,12 +2128,12 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 			ctx.indx = ctx.input.length-1; 
 			
 			// может это наша функция?
-			if (ctx.result[0] instanceof Function && "__args_names" in ctx.result[0]) {
+			if (ctx.result[0] instanceof Function && "__littlelisp" in ctx.result[0]) {
 				var new_scope = {arguments: ctx.result.slice(1), thiz: ctx.this_for_elem1};
-				var arg_names = ctx.result[0].__args_names;
+				var arg_names = ctx.result[0].__littlelisp.args_names;
 				for(var i = 0; i < arg_names.length-1; i++)
-					new_scope[ctx.result[0].__source.substring(arg_names[i] >> 16, 
-						(arg_names[i] >> 16) + (arg_names[i] & 65535))] 
+					new_scope[ctx.result[0].__littlelisp.source.substring(arg_names[i] >> 16, 
+						(arg_names[i] >> 16) + (arg_names[i] & 32767))] 
 						= ctx.result[i+1];
 				
 				// Оптимизация хвостовой рекурсии.
@@ -1728,7 +2146,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 					if (up_ctx.type & 16) {
 						
 						// если тело одинаковое, то это рекурсия
-						if (up_ctx.input == ctx.result[0].__body) {
+						if (up_ctx.input == ctx.result[0].__littlelisp.body) {
 							
 							// переиспользуем контекст функции и вернём его
 							up_ctx.scope = new_scope;
@@ -1739,7 +2157,12 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 					}
 				}
 						
-				return new Context(new_scope, ctx, ctx.result[0].__body, 0, ctx.result[0].__source, ctx.result[0].__file, 16 /* type=function */);
+				return new Context(new_scope, ctx, 
+								ctx.result[0].__littlelisp.body, 
+								0, // ctx.indx
+								ctx.result[0].__littlelisp.source, 
+								ctx.result[0].__littlelisp.file, 
+								16 /* type=function */);
 			}
 			
 			// иначе простая js-функция
@@ -1748,15 +2171,17 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 		}
 		
 		// иначе наверх ^|
-		// TODO return only last value if we and in a function?
 		else if (ctx.parent && !(ctx.type & 32)) {
-			ctx.parent.result[ctx.parent.indx] = ctx.result;
+			ctx.parent.result[ctx.parent.indx] = (ctx.type & 16) 
+				? ctx.result.pop() // в функции вернём последнее вычесленное значение
+				: ctx.result; 
 			ctx = ctx.parent;
 			continue;
 		}
 		
 		// выше некуда - finish
 		else {
+			ctx.result = (ctx.type & 16) ? ctx.result.pop() : ctx.result;
 			ctx.indx = ctx.input.length;
 			return ctx;
 		}
@@ -1801,7 +2226,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 
 var interpret = function(input, scope, source, file) {
 	
-	// lisp
+	// list
 	if(input instanceof Array) {
 		var ctx = new Context(scope, undefined, input, undefined, source, file);
 		
@@ -1812,35 +2237,12 @@ var interpret = function(input, scope, source, file) {
 		return ctx.result;
 	}
 	
-	
-	var char_code = source.charCodeAt(input >> 16);
-	
-	// symbol (quoted atom)
-	if (char_code == 39 || char_code == 96 || char_code == 58 || char_code == 64 /* '`:@ */) {
-		return source.substring((input >> 16) +1, (input >> 16) + (input & 65535));
-	}
-		
-	// string
-	else if (char_code == 34 /* " */) {
-		return source.substring((input >> 16) +1, (input >> 16) + (input & 65535) -1);
-	}
-		
-	// number
-	else if (char_code > 47 && char_code < 58 /* 0-9 */) {
-		return parseInt(source.substring(input >> 16, (input >> 16) + (input & 65535)));
-	}
-		
-	// var
-	else if (atom_alphabet.indexOf(source[input >> 16]) > -1) {
+	// atom/string/number/JSON...
+	else {
 		var var_ctx = new Context(scope, undefined, [input, input], 0, source, file);
 		if (var_ctx.interpret_elem() == false) debugger;
 		return var_ctx.result[0];
-// 		return ctx.get(ctx.source.substring(ctx.input[ctx.indx] >> 16, (ctx.input[ctx.indx] >> 16) + (ctx.input[ctx.indx] & 65535)), ctx.indx == 0);
 	}
-	
-	// ???
-	else
-		throw "Unrecognized: " + source.substring(input >> 16, (input >> 16) + (input & 65535));
 }
 
 var parse = function(source, fragment_start_p) {
@@ -1914,8 +2316,8 @@ var parse = function(source, fragment_start_p) {
 			continue;
 		}
 		
-		// {...} (...)
-		if ("({".indexOf(val) > -1) {
+		// (...)
+		if (val == '(') {
 			if (first_open_bracket === undefined) first_open_bracket = p;
 			
 			var new_list = [(p << 16) + 1];
@@ -1923,7 +2325,7 @@ var parse = function(source, fragment_start_p) {
 			list_stack.push(new_list);
 			continue;
 		}
-		if (")}".indexOf(val) > -1) {
+		if (val == ')') {
 			// переносим число с началом и длиной списка в конец списка
 			var start_list = list_stack[list_stack.length-1].shift();
 			list_stack[list_stack.length-1].push(start_list + (p - (start_list >> 16)));
@@ -1944,6 +2346,51 @@ var parse = function(source, fragment_start_p) {
 			continue;
 		}
 		
+		// {...}[...] - embedded JSON
+		if (val == '{' || val == '[') {
+			
+			tok_start = p;
+			var embed_stack = [val == '[' ? 11 : 13], embed_top = 0;
+			for (p++; p < source.length; p++) {
+				if ((source[p] == ']' || source[p] == '}') && embed_top == 0) {
+					break;
+				}
+				else if (source[p] == ']' && embed_stack[embed_top] == 11) 
+					embed_top--;
+				else if (source[p] == '[' && embed_stack[embed_top] > 10)
+					embed_stack[++embed_top] = 11;
+				else if (source[p] == '}' && embed_stack[embed_top] == 13) 
+					embed_top--;
+				else if (source[p] == '{' && embed_stack[embed_top] > 10)
+					embed_stack[++embed_top] = 13;
+				else if (source[p] == "'" && embed_stack[embed_top] == 3)
+					embed_top--;
+				else if (source[p] == "'" && embed_stack[embed_top] > 10)
+					embed_stack[++embed_top] = 3;
+				else if (source[p] == '\\' && p < source.length-1 && source[p+1] == "'" && embed_stack[embed_top] == 3)
+					p++;
+				else if (source[p] == '"' && embed_stack[embed_top] == 2)
+					embed_top--;
+				else if (source[p] == '"' && embed_stack[embed_top] > 10)
+					embed_stack[++embed_top] = 2;
+				else if (source[p] == '\\' && p < source.length-1 && source[p+1] == '"' && embed_stack[embed_top] == 2)
+					p++;
+				else if (source[p] == '/' && p < source.length-1 && source[p+1] == '*' && embed_stack[embed_top] > 10)
+					embed_stack[++embed_top] = 4;
+				else if (source[p] == '*' && p < source.length-1 && source[p+1] == '/' && embed_stack[embed_top] == 4) {
+					embed_top--;
+					p++;
+				}
+				else if (source[p] == '/'&& p < source.length-1 && source[p] == '/' && embed_stack[embed_top] > 10)
+					while(p < source.length && source[p] != '\n') p++;
+			}
+			
+			tok_len = p - tok_start + 1;
+			list_stack[list_stack.length-1].push((tok_start << 16) + tok_len);
+			
+			continue;
+		}
+		
 		// если поверхностный парсинг запросили, то только списки выделяем
 		if (fragment_start_p != undefined) { 
 			if (list_stack.length == 1) 
@@ -1957,37 +2404,46 @@ var parse = function(source, fragment_start_p) {
 		|| (val == '-' && p+1 < source.length && "0123456789".indexOf(source[p+1]) > -1)) {
 			
 			// выделим число
-			tok_start = p;
+			tok_start = p; var float_flag = 0;
 			for (p++; p < source.length; p++) 
 				if ("0123456789.".indexOf(source[p]) < 0) {
 					p--; // for(;;p++)
 					break;
 				}
+				else
+					// Float?
+					if (float_flag == 0 && source[p] == '.') 
+						float_flag = 1 << 15;
+					
 			tok_len = p - tok_start + 1;
-			list_stack[list_stack.length-1].push((tok_start << 16) + tok_len);
+			list_stack[list_stack.length-1].push((tok_start << 16) + float_flag + tok_len);
 			
 			continue;
 		}
 		
 		// T_ATOM: новый атом
 		if (atom_alphabet.indexOf(val) > -1) {
-			tok_start = p;
+			tok_start = p; var dot_detected_flag = 0;
 			for (p++; p < source.length; p++) 
 				if (atom_alphabet.indexOf(source[p]) < 0 && "0123456789-".indexOf(source[p]) < 0) {
 					p--; // for(;;p++)
 					break;
 				}
+				else if (dot_detected_flag == 0 && source[p] == '.')
+					dot_detected_flag = 1 << 15;
+			
+			// итоговая длина токена получилась
 			tok_len = p - tok_start + 1;
 			
 			// (синтаксический сахар) если арефметический знак на втором месте, то переставим его на первое место
-			if (list_stack[list_stack.length-1].length == 2 
+			if (list_stack[list_stack.length-1].length == (list_stack.length == 1 ? 1 : 2)
 			&& "+-*/%<>!=&|".indexOf(source[tok_start]) > -1 
 			&& (tok_len < 2 || source[tok_start] != '&' || "+-*/%<>!=&|".indexOf(source[tok_start+1]) > -1) /* exclude &keywords */) {
-				list_stack[list_stack.length-1].push(list_stack[list_stack.length-1][1]);
-				list_stack[list_stack.length-1][1] = (tok_start << 16) + tok_len;
+				list_stack[list_stack.length-1].push(list_stack[list_stack.length-1][(list_stack.length == 1 ? 0 : 1)]);
+				list_stack[list_stack.length-1][(list_stack.length == 1 ? 0 : 1)] = (tok_start << 16) + tok_len;
 			}
 			else {
-				list_stack[list_stack.length-1].push((tok_start << 16) + tok_len);
+				list_stack[list_stack.length-1].push((tok_start << 16) + tok_len + dot_detected_flag);
 			}
 			
 			continue;
@@ -2113,9 +2569,9 @@ Debugger.prototype.continue = function(skip_one_breakpoint) {
 		try {
 			this.ctx = this.ctx.interpret_list(true);
 		} catch (ex) {
-			if (this.onerror) this.onerror({type: "debugger.exception", debugger: this});
-			alert(ex.stack);
-			console.info(ex.stack);
+			if (this.onerror) this.onerror({type: "debugger.exception", debugger: this, ex: ex});
+			alert(ex.stack || ex);
+			console.info(ex.stack || ex);
 			throw ex;
 		}
 		
@@ -2149,10 +2605,11 @@ exports.littleLisp = {
 	Debugger: Debugger,
 	parse: parse,
 	interpret: interpret,
-	eval: function(source, scope) { return interpret(parse(source), scope || window, source); },
+	eval: function(source, scope, file) { return interpret(parse(source), scope || window, source, file); },
 	debug: function(source, file, parent_ctx, onerror_callback) { return new Debugger(source, file, parent_ctx, window["littlelisp_ide_onclick"] ?  littlelisp_ide_onclick : onerror_callback); },
 	breakpoints: breakpoints,
 	debuggers: debuggers,
-  	debuggersStopNow: function() { for (var i in debuggers) debuggers[i].stop_now = true; }
+  	debuggersStopNow: function() { for (var i in debuggers) debuggers[i].stop_now = true; },
+	gensymCounter: gensym_counter
 };
 })(typeof exports === 'undefined' ? this : exports);
