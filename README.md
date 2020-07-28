@@ -205,7 +205,7 @@ A mini Lisp interpreter in JavaScript. Supports lists (obvs), function invocatio
 	`(let ((,tmp_keys (Object.keys ,obj)) (,tmp_count (get ,tmp_keys "length")) (,tmp_indx -1))
 		(while ((++ ,tmp_indx) < ,tmp_count)
 			(setq ,field_name (get ,tmp_keys ,tmp_indx))
-			,code
+			~code  ; Comma may be replaced to tilda
 		)
 	)
 )

@@ -1225,10 +1225,18 @@ function littlelisp_ide_onclick(event) {
 	// TODO target not my
 	if(ev.type == "click" && (trg1.className.indexOf('cmd_code_editor_save') > -1 || trg1p.className.indexOf('cmd_code_editor_save') > -1)) {
 		var win_id = find_near("c-toolbar", {getAttribute:function(){}}).getAttribute("data-win-id");
-		var editor1 = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
-		var file_name = editor1.getAttribute("data-file_name") || document.getElementById("littlelisp_file_list_selector").value;
-		var file_name_offset = editor1.getAttribute("data-file_name-offset") || 0;
-		var new_code = editor1.value || editor1.innerHTML;
+		
+		var editor = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
+		var file_name_offset = editor.getAttribute("data-file_name-offset") || 0;
+		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
+		file_name = file_name == "(new...)" ? "(no file)" : file_name;
+		
+		if (window["ace"]) editor = ace.edit(editor);
+		if (editor.getSelectedText) {
+			new_code = editor.getValue();
+		} 
+		else 
+			var new_code = editor.value || editor.innerHTML;
 		
 		// сохранение файла в главном окне
 		if(win_id == "littlelisp_ide_main_window") {
@@ -1434,9 +1442,16 @@ function littlelisp_ide_onclick(event) {
 		var editor = document.getElementById(win_id).querySelector(".c-code_editor-textarea");
 		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
-		var src = editor.selectionStart == editor.selectionEnd 
-			? editor.value 
-			: editor.value.substring(editor.selectionStart, editor.selectionEnd);
+		
+		if (window["ace"]) editor = ace.edit(editor);
+		if (editor.getSelectedText) {
+			var src = editor.getSelectedText();
+			if (src == "") src = editor.getValue();
+		} 
+		else 
+			var src = editor.selectionStart == editor.selectionEnd 
+				? editor.value 
+				: editor.value.substring(editor.selectionStart, editor.selectionEnd);
 		
 		// если в дебагере, то на основе текущего контекста создаём новый дебагер
 		if(win_id.match(/^littlelisp_debugger_/))
@@ -1630,7 +1645,7 @@ function littlelisp_ide_onclick(event) {
 		"-+*/%<>=!|&" + // arithmetic + logic
 		":#'`" + // symbol chars + quote + backquote
 		"яжфпгйлуыюшщарстдхнеиоэзчцвбкмъьЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЭЗЧЦВБКМЬЪ" + // Cyrillic
-		"_.,?@"+
+		"_.,?@~"+
 		"1234567890"; // additional atom chars
 		
 		// TODO String?
@@ -1667,12 +1682,17 @@ function littlelisp_ide_onclick(event) {
 		var file_name = editor.getAttribute('data-file_name') || document.getElementById('littlelisp_file_list_selector').value;
 		file_name = file_name == "(new...)" ? "(no file)" : file_name;
 		
-		if(editor.selectionStart == editor.selectionEnd) 
-			var src = editor.value;
-		else
-			var src = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+		if (window["ace"]) editor = ace.edit(editor);
+		if (editor.getSelectedText) {
+			var src = editor.getSelectedText();
+			if (src == "") src = editor.getValue();
+		} 
+		else 
+			var src = editor.selectionStart == editor.selectionEnd 
+				? editor.value 
+				: editor.value.substring(editor.selectionStart, editor.selectionEnd);
 
-			try {
+		try {
 				
 			// если в дебагере, то на основе текущего контекста создаём новый дебагер
 			if(win_id.match(/^littlelisp_debugger_/))
@@ -1682,43 +1702,42 @@ function littlelisp_ide_onclick(event) {
 			else 
 				var littlelisp_debugger = littleLisp.debug(src, file_name);
 			
-			} catch(ex) {
-				alert(ex.stack);
-				return;
+		} catch(ex) {
+			alert(ex.stack);
+			return;
+		}
+			
+		try {
+			var result = littlelisp_debugger.continue();
+			
+			// удалим дебагер из списка дебагеров
+			for (var i in littleLisp.debuggers)
+				if (littleLisp.debuggers[i] == littlelisp_debugger)
+					delete littleLisp.debuggers[i];
+			
+		} catch(ex) {
+			if(ex != "Breakpoint!") {
+				alert(ex);
+				console.info(ex.stack);
 			}
 			
-			try {
-				var result = littlelisp_debugger.continue();
-				
-				// удалим дебагер из списка дебагеров
-				for (var i in littleLisp.debuggers)
-					if (littleLisp.debuggers[i] == littlelisp_debugger)
-						delete littleLisp.debuggers[i];
-				
-			} catch(ex) {
-				if(ex != "Breakpoint!") {
-					alert(ex);
-					console.info(ex.stack);
-				}
-				
-				var button = document.createElement('BUTTON');
-				button.className = "cmd_code_editor_debugger";
-				button.innerHTML = "<i></i>Debugger #"+(littlelisp_ide_onclick.debugger_win_next_num++);
-				button.littlelisp_debugger = littlelisp_debugger;
-				button.ex = ex;
-			
-				if(document.getElementById("littlelisp_ide_panel")) {
-					document.getElementById("littlelisp_ide_panel").insertBefore(button, document.getElementById("littlelisp_ide_panel").firstElementChild);
-				}
-				else {
-					button.className = "c-panel-btn cmd_code_editor_debugger";
-					find_near("c-toolbar").appendChild(button);
-				}
-			
-				button.click();
-			
-				return;
-// 			}
+			var button = document.createElement('BUTTON');
+			button.className = "cmd_code_editor_debugger";
+			button.innerHTML = "<i></i>Debugger #"+(littlelisp_ide_onclick.debugger_win_next_num++);
+			button.littlelisp_debugger = littlelisp_debugger;
+			button.ex = ex;
+		
+			if(document.getElementById("littlelisp_ide_panel")) {
+				document.getElementById("littlelisp_ide_panel").insertBefore(button, document.getElementById("littlelisp_ide_panel").firstElementChild);
+			}
+			else {
+				button.className = "c-panel-btn cmd_code_editor_debugger";
+				find_near("c-toolbar").appendChild(button);
+			}
+		
+			button.click();
+		
+			return;
 		}
 
 // 				alert("RESULT: " + (result instanceof Function ? result : JSON.stringify(result)))
@@ -1982,9 +2001,9 @@ function littlelisp_ide_onclick(event) {
 	}
 
 	// #littlelisp_file_list_selector
-	if(trg1.id == 'littlelisp_file_list_selector') {
-		var editor = document.getElementById('littlelisp_ide_main_window_src');
-
+	if(trg1.id == "littlelisp_file_list_selector") {
+		var editor = document.querySelector("#littlelisp_ide_main_window > .c-code_editor-textarea");
+		
 		if(trg1.value == '(new...)') {
 			var name = prompt('File name:', '');
 			if(!!name) {
@@ -1995,13 +2014,25 @@ function littlelisp_ide_onclick(event) {
 				});
 				(trg1.insertBefore(document.createElement('OPTION'), trg1.lastChild)).innerHTML = name;
 				trg1.selectedIndex = trg1.options.length - 2;
-				editor.value = ";; "+name;
-				editor.focus();
+				if (window["ace"]) { 
+					editor = ace.edit(editor);
+					editor.session.setValue(";; "+name);
+				}
+				else {
+					editor.value = ";; "+name;
+					editor.focus();
+				}
 			}
 		}
 		else {
 			html_onclick({type: "get_file", file_name: trg1.value, onload: function(value) {
-				editor.value = value;
+				if (window["ace"]) { 
+					editor = ace.edit(editor);
+					editor.session.setValue(value);
+				}
+				else {
+					editor.value = value;
+				}
 			}});
 		}
 		
@@ -2019,6 +2050,29 @@ function littlelisp_ide_onclick(event) {
 			selected_ctx_num: trg1.selectedIndex});
 	}
 
+	// .cmd_code_editor_load_and_activate_ACE
+	if(ev.type == "click" && trg1.className.indexOf("cmd_code_editor_load_and_activate_ACE") > -1) {
+		var ace_basePath = "//cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/";
+		if(document.location.host.match(/\.loc$/)) ace_basePath = "/";
+		var ace_tag = document.getElementById("littlelisp_ide_ace_js");
+		if (!ace_tag) {
+			ace_tag = document.createElement("SCRIPT");
+			ace_tag.id = "littlelisp_ide_ace_js";
+			ace_tag.type = "text/javascript";
+			ace_tag.src = ace_basePath + "ace.js";
+			ace_tag.onload = function(){ 
+				console.log("Ace loaded!"); 
+				ace.config.set("basePath", ace_basePath);
+				var editor = ace.edit("littlelisp_ide_main_window_src");
+				editor.session.setMode("ace/mode/lisp");
+				editor.session.setOption("useSoftTabs", false);
+				editor.setOption("fontFamily", "monospace");
+				editor.setBehavioursEnabled( true );
+			};
+			document.querySelector("head").insertBefore(ace_tag, document.querySelector("head > script"));
+		}
+	}
+	
 	// [change] .c-object_props
 	if(ev.type == 'change' && trg1.className.indexOf('c-object_props') > -1) {
 // 		var dbg_id = find_near("c-object_props", {getAttribute:function(){}}).getAttribute("data-win-id");
@@ -2150,6 +2204,7 @@ function littlelisp_ide_onclick(event) {
 			else
 				document.getElementById('littlelisp_ide_main_window_src').value = last_file_content;
 			document.getElementById('littlelisp_ide_main_window_src').focus();
+			
 		}});
 		
 	}
@@ -2253,7 +2308,7 @@ function littlelisp_ide_onclick(event) {
 		if(!style_tag) {
 			style_tag = document.createElement("STYLE");
 			style_tag.id = "littlelisp_ide_css_styles";
-			style_tag.type="text/css";
+			style_tag.type = "text/css";
 			style_tag.appendChild(
 				document.createTextNode(littlelisp_ide_onclick.css_styles));
 			document.querySelector("head").insertBefore(style_tag, document.querySelector("head > style"));
@@ -2265,7 +2320,7 @@ function littlelisp_ide_onclick(event) {
 			var div = document.createElement("DIV");
 			div.innerHTML = '<div id="littlelisp_ide_main_window" class="c-code_editor" style="width:100%;height:100%;position:fixed;top:0;left:0;right:0;bottom:0;display:none;background:white">'+
 			'<pre id="littlelisp_ide_main_window_brkpnts" class="c-code_editor-bg" style="height:100%;width:100%;border-top:26px solid transparent;display:block;background:white;position:absolute;top:0;left:0;color:transparent;"></pre>'+
-		'<textarea id="littlelisp_ide_main_window_src" class="c-code_editor-textarea" contenteditable="true" style="height:100%;width:100%;border-top:26px solid transparent;display:block;background:transparent;position:relative" data-win-id="littlelisp_ide_main_window" data-file_name-offset="0">'+(window['default_lisp_code']||"")+'</textarea>'+
+		'<textarea id="littlelisp_ide_main_window_src" class="c-code_editor-textarea" contenteditable="true" data-win-id="littlelisp_ide_main_window" data-file_name-offset="0">'+(window['default_lisp_code']||"")+'</textarea>'+
 		'<div class="c-toolbar" style="position:absolute;top:0;width:100%;" data-win-id="littlelisp_ide_main_window">'+
 		'<select id="littlelisp_file_list_selector" class="c-toolbar-select" onchange="return html_onclick(event)"></select>'+
 		'<button class="c-toolbar-btn cmd_code_editor_save" title="Save to LocalStorage (Alt+S)"><i class="ico-save"></i>Save</button>'+
@@ -2276,9 +2331,11 @@ function littlelisp_ide_onclick(event) {
 		'<span class="c-toolbar-divider"></span>'+
 		'<button class="c-toolbar-btn cmd_code_editor_set_breakpoint" title="Set/unset breakpoint (Alt+T)"><i class="ico-add-brk"></i>Set breakpoint</button>'+
 		'<span class="c-toolbar-divider"></span>'+
-		'<button class="c-toolbar-btn cmd_code_editor_show_class_browser"><i class="ico-class-browser" title="Open Class Browser"></i>Class Browser</button>'+
+		'<button class="c-toolbar-btn cmd_code_editor_show_class_browser"  title="Open Class Browser"><i class="ico-class-browser"></i>Class Browser</button>'+
+		'<span class="c-toolbar-divider"></span>'+
+		'<button class="c-toolbar-btn cmd_code_editor_load_and_activate_ACE"  title="Load and activate ACE.js" style="display:none">Activate highlight</button>'+
 		'<button class="c-toolbar-btn" id="littlelisp_ide_main_window_settings" title="Settings" style="display:none"><i class="ico-cog"></i></button>'+
-		'<span class="c-toolbar-divider"></span></div></div>';
+		'<span class="c-toolbar-divider"  style="display:none"></span></div></div>';
 		
 			document.body.appendChild(div.firstElementChild);
 			ide_win = document.getElementById("littlelisp_ide_main_window");
@@ -2293,7 +2350,9 @@ function littlelisp_ide_onclick(event) {
 			
 			if(ide_win.style.display == "block") {
 				// сохроним прокрутку в редакторе
-				document.getElementById("littlelisp_ide_main_window_src").setAttribute("data-scrollTop", document.getElementById("littlelisp_ide_main_window_src").scrollTop);
+				if (document.getElementById("littlelisp_ide_main_window_src")) {
+					document.getElementById("littlelisp_ide_main_window_src").setAttribute("data-scrollTop", document.getElementById("littlelisp_ide_main_window_src").scrollTop);
+				}
 				
 				ide_win.style.display = "none";
 				(document.getElementById("littlelisp_ide_main_window_show")||{}).innerHTML = "Show IDE";
@@ -2728,30 +2787,35 @@ littlelisp_ide_onclick.css_styles =
 ".win-splitter.type_horizontal:hover { background: silver; cursor:row-resize; }"+
 ".win-fieldset, .win fieldset { border: none; padding: 0; }"+
 ".win-fieldset > .row { padding: 5px 17px; clear:both; }"+
-".win-fieldset > .row > label { float: left; width: 100px; }"+
+".win-fieldset > .row > label { float: left; width: 100px; }\n"+
 		
 ".c-toolbar { background: white; border: 1px solid #ddd; box-sizing: border-box; white-space: nowrap; overflow-y: hidden; }"+
 ".c-toolbar-btn { display: inline-block; vertical-align: top; height: 22px; margin: 1px; border: none; background: transparent; line-height: 20px; }"+
 ".c-toolbar-btn:hover { background: silver; cursor: pointer; }"+
 ".c-toolbar-btn > i, .ico-apply { background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA0AAAALCAYAAACksgdhAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH3wsdFwECFGNfkQAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAqklEQVQoz5XRPU4CYRAG4OcDeiylpLAgFHgEWmkUTmBjjUcgnICT7EK1lHsEGiKFicZ4gb0A2owF8pPlbed9kslMUiMPk3EbC7wWWV6lmqDEPTYYNq8AcItOugLAFqNWFAaY4bnI8uoCeMR3ClDiJnZ+wvIM+CiyfN/CPIAofv7b9ABAA9MYnMoR+ENfMdjWAZDiEA10sUL/EoAmvL/tfu56vQrr+MXLOQC/RH9Eb3kwTjIAAAAASUVORK5CYII='); background-position: 50% 50%; background-repeat: no-repeat; display: inline-block; width: 20px; height: 20px; vertical-align: bottom; }"+
 ".c-toolbar-select, .c-toolbar-input { display: inline-block; vertical-align: top; height: 22px; margin: 1px; background: transparent; line-height: 20px; }"+
-".c-toolbar-divider { width: 1px; margin: 1px 1px; overflow: hidden; background-color: #e5e5e5; height: 20px; display: inline-block; vertical-align: middle; }"+
+".c-toolbar-divider { width: 1px; margin: 1px 1px; overflow: hidden; background-color: #e5e5e5; height: 20px; display: inline-block; vertical-align: middle; }\n"+
 
 "#littlelisp_ide_main_window_show_hide { position:absolute; right: 0; top: 0; width: 30px; height: 25px;  border: none; border-left: 1px solid #e5e5e5; /* background: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMCAyMCIgdmVyc2lvbj0iMS4xIj48cGF0aCBkPSJtIDE1LDYuMzI5OTk5OCAtMS4zMywtMS4zMyAtMy42NywzLjY3IC0zLjY2OTk5OTksLTMuNjcgLTEuMzMsMS4zMyAzLjY3LDMuNjcwMDAwMiAtMy42NywzLjY3IDEuMzMsMS4zMyBMIDEwLDExLjMzIDEzLjY3LDE1IDE1LDEzLjY3IDExLjMzLDEwIDE1LDYuMzI5OTk5OCBaIiAvPjwvc3ZnPgo=') 50% 50% no-repeat; */ background: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDIwIDIwIj48cmVjdCB5PSIxMyIgeD0iNCIgd2lkdGg9IjEyIiByeT0iMCIgaGVpZ2h0PSIyIiAvPjwvc3ZnPgo=') 50% 50% no-repeat; }"+
 "#littlelisp_ide_main_window_show_hide:hover { background-color: silver; } "+
 
 ".cmd_code_editor_continue > i { margin: 0 -4px; }"+
-".cmd_code_editor_next_step > i { margin: 0 -4px; background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyLjU0bW0iIGhlaWdodD0iMy42NjhtbSIgdmlld0JveD0iMCAwIDguOTkgMTMiPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEuMTg3NTc3M2UtOCwtMTAzOS4zNjIyKSI+PHBhdGggZD0ibSAyLjUsMTA1MC4zNjIyIGMgMCwxLjEgMC45LDIgMiwyIDEuMSwwIDIsLTAuOSAyLC0yIDAsLTEuMSAtMC45LC0yIC0yLC0yIC0xLjEsMCAtMiwwLjkgLTIsMiIvPjxwYXRoIGQ9Im0gMywxMDM5LjM2MjIgMCw0IC0zLDAgTCA0LjUsMTA0Ny4zNjIyIGwgNC41LC00IC0zLDAgMCwtNCAtMywwIHoiLz48L2c+PC9zdmc+Cg=='); }"+
+".cmd_code_editor_next_step > i { margin: 0 -4px; background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyLjU0bW0iIGhlaWdodD0iMy42NjhtbSIgdmlld0JveD0iMCAwIDguOTkgMTMiPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEuMTg3NTc3M2UtOCwtMTAzOS4zNjIyKSI+PHBhdGggZD0ibSAyLjUsMTA1MC4zNjIyIGMgMCwxLjEgMC45LDIgMiwyIDEuMSwwIDIsLTAuOSAyLC0yIDAsLTEuMSAtMC45LC0yIC0yLC0yIC0xLjEsMCAtMiwwLjkgLTIsMiIvPjxwYXRoIGQ9Im0gMywxMDM5LjM2MjIgMCw0IC0zLDAgTCA0LjUsMTA0Ny4zNjIyIGwgNC41LC00IC0zLDAgMCwtNCAtMywwIHoiLz48L2c+PC9zdmc+Cg=='); }\n"+
 
 "#littlelisp_ide_main_window_show { /* position:fixed; right: 2px; bottom: 2px; display: block;*/ }"+
 
 "#littlelisp_ide_main_window_settings { position:absolute; right: 0px; top: 0px; border: none; border-left: 1px solid #e5e5e5; padding-left: 3px; padding-right: 3px; }"+
 "#littlelisp_ide_main_window_settings:hover, #littlelisp_ide_main_window_settings:hover > i { background-color: silver; opacity: 1; }"+
-"#littlelisp_ide_main_window_settings > i { opacity: 0.2; width: 18px; } "+
+"#littlelisp_ide_main_window_settings > i { opacity: 0.2; width: 18px; }\n"+
 
 ".c-code_editor-bg, .c-code_editor-textarea { font: 13px/16px monospace; padding: 2px; margin:0; border: 1px solid silver; -moz-box-sizing:border-box; box-sizing: border-box; overflow: auto; white-space: pre-wrap; word-wrap: break-word; }"+
 
-".dbg_readonly_code .c-code_editor { background-color: #ffa; }"+
+"#littlelisp_ide_main_window_src { height:100%; width:100%; border-top:26px solid transparent; display:block; background:transparent; position:relative; }\n"+
+
+".ace_editor { height:100%; width:100%; margin: 0; }"+
+"#littlelisp_ide_main_window > .ace_editor { border-top:26px solid transparent; display:block; } "
+
+".dbg_readonly_code .c-code_editor { background-color: #ffa; }\n"+
 ".dbg_readonly_code .cmd_code_editor_save { opacity: 0.3; }";
 "";
 

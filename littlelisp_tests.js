@@ -80,6 +80,14 @@ result = littleLisp.eval(test); // console.log(JSON.stringify(result));
 expect = ["abc", 111, 999, 222, 1, 2, 3, "str", ["abc", 333, 999, 444, 1, 2, 3, "arg1"], "cde", [1,2,3], "arg1"];
 console.assert(result == expect.toString(), result);
 
+console.log("\n\033[1m%s\033[0m\n", test = "`(abc 111 ~arg1 222 ~@arg2 \"str\" (:abc 333 ~arg1 444 ~@arg2 @arg1) 'cde ~arg2 arg1)\n");
+arg1 = 999;
+arg2 = [1, 2, 3];
+result = littleLisp.eval(test); // console.log(JSON.stringify(result));
+expect = ["abc", 111, 999, 222, 1, 2, 3, "str", ["abc", 333, 999, 444, 1, 2, 3, "arg1"], "cde", [1,2,3], "arg1"];
+console.assert(result == expect.toString(), result);
+
+
 
 console.log("\n\033[1m%s\033[0m\n", test = "(typeof true)");
 result = littleLisp.eval(test); // console.log(JSON.stringify(result));

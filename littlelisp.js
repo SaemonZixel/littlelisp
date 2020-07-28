@@ -5,7 +5,7 @@ var atom_alphabet =
 "-+*/%<>=!|&" + // arithmetic + logic
 ":#'`" + // symbol chars + quote + backquote
 "яжфпгйлуыюшщарстдхнеиоэзчцвбкмъьЯЖФПГЙЛУЫЮШЩАРСТДХНЕИОЭЗЧЦВБКМЬЪёЁ" + // Cyrillic
-"_.,?@"; // additional atom chars
+"_.,?@~"; // additional atom chars
 
 var gensym_counter = 1; // for macros
 
@@ -241,7 +241,7 @@ Context.prototype.interpret_elem = function() {
 				(this.input[this.indx] >> 16) + 1, 
 				(this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
 		// случаи когда ,var или ,@var
-		else if (this.source[this.input[this.indx] >> 16] == ',')
+		else if (",~".indexOf(this.source[this.input[this.indx] >> 16]) > -1)
 			var identifier = this.source.substring(
 				(this.input[this.indx] >> 16) + (this.source[(this.input[this.indx] >> 16)+1] == '@' ? 2 : 1), 
 				(this.input[this.indx] >> 16) + (this.input[this.indx] & 32767));
@@ -650,7 +650,7 @@ Context.prototype.interpret_list = function(debugging, step_over_ctx) {
 					result.push(atom);
 				}
 				// unquoted_atom
-				else if (first_char == ',') {
+				else if (first_char == ',' || first_char == '~') {
 					var tmp_ctx = new Context(ctx.scope, ctx, input, i, ctx.source, ctx.file, 0);
 					tmp_ctx.interpret_elem();
 					
